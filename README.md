@@ -1,5 +1,4 @@
-# 🌰 Acorn AI (The Job Tracker you can count on) — Real-Time Canadian Job Tracker & Zero-PII ATS Co-Pilot
-
+# 🌰 Acorn AI (The Job Tracker you can count on).  I will let you know a second after the job was posted 😉
 
 ![CI Status](https://img.shields.io/github/actions/workflow/status/mtk7zt/Acorn/job_tracker.yml?label=Job%20Tracker%20CI&logo=github)
 ![Python 3.11+](https://img.shields.io/badge/Python-3.11%2B-3776AB?logo=python&logoColor=white)
