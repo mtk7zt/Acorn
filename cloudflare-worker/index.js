@@ -306,12 +306,50 @@ Output ONLY a raw JSON object complying with this structure (no markdown fences,
 }`;
 }
 
+let discoveredModelEndpoints = null;
+
+async function getAvailableGeminiEndpoints(apiKey) {
+  if (discoveredModelEndpoints && discoveredModelEndpoints.length > 0) {
+    return discoveredModelEndpoints;
+  }
+
+  try {
+    const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models?key=${apiKey}`);
+    if (res.ok) {
+      const data = await res.json();
+      const models = (data.models || []).filter(
+        (m) => m.supportedGenerationMethods && m.supportedGenerationMethods.includes('generateContent')
+      );
+      if (models.length > 0) {
+        // Prioritize flash models
+        models.sort((a, b) => {
+          const aFlash = a.name.includes('flash') ? -1 : 1;
+          const bFlash = b.name.includes('flash') ? -1 : 1;
+          return aFlash - bFlash;
+        });
+
+        console.log(`Discovered ${models.length} active models:`, models.map((m) => m.name).join(', '));
+        discoveredModelEndpoints = models.map(
+          (m) => `https://generativelanguage.googleapis.com/v1beta/${m.name}:generateContent`
+        );
+        return discoveredModelEndpoints;
+      }
+    } else {
+      console.error(`ListModels failed HTTP ${res.status}:`, (await res.text()).slice(0, 300));
+    }
+  } catch (err) {
+    console.warn('Dynamic model discovery failed, using fallback list:', err?.message || err);
+  }
+
+  return CANDIDATE_GEMINI_ENDPOINTS;
+}
+
 async function callGemini(history, newMessage, systemPrompt, env) {
   const apiKey = String(env.GEMINI_API_KEY || '').trim();
   const contents = [...history, { role: 'user', parts: [{ text: newMessage }] }];
 
   const body = {
-    system_instruction: { parts: [{ text: systemPrompt }] },
+    systemInstruction: { parts: [{ text: systemPrompt }] },
     contents,
     generationConfig: {
       maxOutputTokens: 1024,
@@ -320,53 +358,40 @@ async function callGemini(history, newMessage, systemPrompt, env) {
     },
   };
 
-  const endpointsToTry = activeGeminiEndpoint
-    ? [activeGeminiEndpoint, ...CANDIDATE_GEMINI_ENDPOINTS.filter((u) => u !== activeGeminiEndpoint)]
-    : CANDIDATE_GEMINI_ENDPOINTS;
+  const endpointsToTry = await getAvailableGeminiEndpoints(apiKey);
 
   let lastError = null;
   for (const endpoint of endpointsToTry) {
     try {
       const res = await fetch(`${endpoint}?key=${apiKey}`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          'x-goog-api-key': apiKey,
+        },
         body: JSON.stringify(body),
       });
 
-      if (res.status === 404) {
-        console.warn(`Gemini endpoint ${endpoint} returned 404. Trying next model candidate...`);
-        lastError = new Error(`HTTP 404 for ${endpoint}`);
-        continue;
-      }
-
       if (!res.ok) {
         const errText = await res.text();
-        throw new Error(`Gemini API HTTP ${res.status}: ${errText.slice(0, 200)}`);
+        console.warn(`Gemini endpoint ${endpoint} returned HTTP ${res.status}: ${errText.slice(0, 300)}`);
+        lastError = new Error(`HTTP ${res.status} for ${endpoint}: ${errText.slice(0, 200)}`);
+        continue;
       }
 
       const data = await res.json();
       const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
       if (!text) throw new Error('Empty candidate response from Gemini API.');
 
-      activeGeminiEndpoint = endpoint;
       return text;
     } catch (err) {
       lastError = err;
-      if (err.message?.includes('HTTP 404')) continue;
+      if (err.message?.includes('HTTP')) continue;
       throw err;
     }
   }
 
-  // Probe ListModels to identify exact account/key cause
-  try {
-    const probeRes = await fetch(`https://generativelanguage.googleapis.com/v1beta/models?key=${apiKey}`);
-    const probeData = await probeRes.text();
-    console.error('Gemini ListModels probe result:', probeData.slice(0, 500));
-  } catch (probeErr) {
-    console.error('Gemini ListModels probe network error:', probeErr?.message || probeErr);
-  }
-
-  throw lastError || new Error('All candidate Gemini model endpoints returned 404.');
+  throw lastError || new Error('All candidate Gemini model endpoints failed.');
 }
 
 function parseGeminiResponse(raw) {
