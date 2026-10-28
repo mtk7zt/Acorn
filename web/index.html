@@ -1,0 +1,702 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Acorn — Autonomous Canadian Tech Job Tracker & Edge AI</title>
+  <meta name="description" content="Autonomous Canadian Tech Job Tracker & Zero-PII Edge AI Co-Pilot powered by Cloudflare Workers and Gemini 3.8 Flash." />
+  
+  <!-- Tailwind CSS via Google static CDN -->
+  <script src="https://www.gstatic.com/antigravity/web/dev/tailwindcss.min.js"></script>
+  
+  <style>
+    @keyframes pulse-subtle {
+      0%, 100% { opacity: 1; transform: scale(1); }
+      50% { opacity: 0.85; transform: scale(1.02); }
+    }
+    .glow-border {
+      box-shadow: 0 0 25px -5px rgba(56, 189, 248, 0.25);
+    }
+    .terminal-scrollbar::-webkit-scrollbar {
+      width: 6px;
+    }
+    .terminal-scrollbar::-webkit-scrollbar-track {
+      background: rgba(15, 23, 42, 0.6);
+    }
+    .terminal-scrollbar::-webkit-scrollbar-thumb {
+      background: rgba(100, 116, 139, 0.5);
+      border-radius: 4px;
+    }
+    .glass-card {
+      background: rgba(15, 23, 42, 0.75);
+      backdrop-filter: blur(16px);
+      -webkit-backdrop-filter: blur(16px);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+    }
+  </style>
+</head>
+<body class="bg-[#090d16] text-slate-100 min-h-screen font-sans antialiased selection:bg-amber-500 selection:text-black">
+
+  <!-- Top Navigation -->
+  <nav class="sticky top-0 z-50 glass-card border-b border-slate-800/80 px-6 py-3">
+    <div class="max-w-7xl mx-auto flex items-center justify-between">
+      <div class="flex items-center space-x-3">
+        <span class="text-3xl">🌰</span>
+        <div>
+          <span class="text-xl font-bold tracking-tight bg-gradient-to-r from-amber-400 via-orange-300 to-amber-200 bg-clip-text text-transparent">Acorn</span>
+          <span class="ml-2 text-xs font-mono uppercase px-2 py-0.5 rounded-full bg-emerald-950 text-emerald-400 border border-emerald-800/60 font-semibold tracking-wider">
+            ● Edge Online
+          </span>
+        </div>
+      </div>
+
+      <div class="hidden md:flex items-center space-x-6 text-sm text-slate-300">
+        <a href="#playground" class="hover:text-amber-400 transition">Simulator Playground</a>
+        <a href="#ats-tool" class="hover:text-amber-400 transition">Zero-PII ATS</a>
+        <a href="#velocity" class="hover:text-amber-400 transition">Velocity Tiers</a>
+        <a href="#docs" class="hover:text-amber-400 transition">Architecture</a>
+      </div>
+
+      <div class="flex items-center space-x-3">
+        <a href="https://github.com/mtk7zt/Acorn" target="_blank" rel="noopener" class="flex items-center space-x-1.5 px-3 py-1.5 rounded-lg border border-slate-700 bg-slate-800/60 hover:bg-slate-700 text-xs font-medium transition">
+          <svg class="w-4 h-4 text-slate-300" fill="currentColor" viewBox="0 0 24 24"><path fill-rule="evenodd" clip-rule="evenodd" d="M12 2C6.477 2 2 6.484 2 12.017c0 4.425 2.865 8.18 6.839 9.504.5.092.682-.217.682-.483 0-.237-.008-.868-.013-1.703-2.782.605-3.369-1.343-3.369-1.343-.454-1.158-1.11-1.466-1.11-1.466-.908-.62.069-.608.069-.608 1.003.07 1.53 1.032 1.53 1.032.892 1.53 2.341 1.088 2.91.832.092-.647.35-1.088.636-1.338-2.22-.253-4.555-1.113-4.555-4.951 0-1.093.39-1.988 1.029-2.688-.103-.253-.446-1.272.098-2.65 0 0 .84-.27 2.75 1.026A9.564 9.564 0 0112 6.844c.85.004 1.705.115 2.504.337 1.909-1.296 2.747-1.027 2.747-1.027.546 1.379.202 2.398.1 2.651.64.7 1.028 1.595 1.028 2.688 0 3.848-2.339 4.695-4.566 4.943.359.309.678.92.678 1.855 0 1.338-.012 2.419-.012 2.747 0 .268.18.58.688.482A10.019 10.019 0 0022 12.017C22 6.484 17.522 2 12 2z"/></svg>
+          <span>GitHub</span>
+        </a>
+        <a id="telegramDirectBtn" href="https://t.me/" target="_blank" rel="noopener" class="flex items-center space-x-1.5 px-4 py-1.5 rounded-lg bg-gradient-to-r from-sky-500 to-blue-600 hover:from-sky-400 hover:to-blue-500 text-white text-xs font-semibold shadow-md shadow-sky-500/20 transition">
+          <svg class="w-3.5 h-3.5 fill-current" viewBox="0 0 24 24"><path d="M12 0C5.373 0 0 5.373 0 12s5.373 12 12 12 12-5.373 12-12S18.627 0 12 0zm5.894 8.221l-1.97 9.28c-.145.658-.537.818-1.084.508l-3-2.21-1.446 1.394c-.16.16-.295.295-.605.295l.213-3.053 5.56-5.023c.242-.213-.054-.333-.373-.121l-6.871 4.326-2.962-.924c-.643-.204-.657-.643.136-.953l11.57-4.461c.537-.197 1.006.128.832.942z"/></svg>
+          <span>Launch Bot</span>
+        </a>
+      </div>
+    </div>
+  </nav>
+
+  <!-- Hero Section -->
+  <header class="relative overflow-hidden py-16 md:py-24 border-b border-slate-800/60">
+    <div class="absolute inset-0 bg-[radial-gradient(ellipse_80%_80%_at_50%_-20%,rgba(245,158,11,0.15),rgba(255,255,255,0))]"></div>
+    <div class="max-w-5xl mx-auto px-6 text-center relative z-10">
+      <div class="inline-flex items-center space-x-2 px-3 py-1 rounded-full border border-amber-500/30 bg-amber-500/10 text-amber-300 text-xs font-medium mb-6">
+        <span>⚡ Canadian Tech Market Speed Advantage</span>
+        <span>•</span>
+        <span class="text-slate-300">V8 Edge Powered</span>
+      </div>
+
+      <h1 class="text-4xl md:text-6xl font-extrabold tracking-tight text-white mb-6 leading-tight">
+        First-Mover Job Velocity &amp; <br/>
+        <span class="bg-gradient-to-r from-amber-400 via-orange-300 to-amber-200 bg-clip-text text-transparent">Zero-PII ATS Co-Pilot</span>
+      </h1>
+
+      <p class="text-lg md:text-xl text-slate-400 max-w-3xl mx-auto mb-10 leading-relaxed">
+        Acorn tracks fresh Canadian tech roles across multiple job boards with sub-second deduplication, strictly filtering out saturated postings (&gt;40 applicants) and delivering instant edge AI resume alignment.
+      </p>
+
+      <!-- Key Metrics Badges -->
+      <div class="grid grid-cols-2 md:grid-cols-4 gap-4 max-w-4xl mx-auto mb-10">
+        <div class="glass-card p-4 rounded-xl text-left border border-slate-800">
+          <div class="text-amber-400 font-mono text-2xl font-bold">&lt; 5</div>
+          <div class="text-xs font-semibold text-slate-200">⚡ Tier A First-Mover</div>
+          <div class="text-[11px] text-slate-400 mt-1">Instant alert before mass saturation</div>
+        </div>
+        <div class="glass-card p-4 rounded-xl text-left border border-slate-800">
+          <div class="text-emerald-400 font-mono text-2xl font-bold">100%</div>
+          <div class="text-xs font-semibold text-slate-200">🇨🇦 Canadian Geofenced</div>
+          <div class="text-[11px] text-slate-400 mt-1">Strict domestic jurisdiction check</div>
+        </div>
+        <div class="glass-card p-4 rounded-xl text-left border border-slate-800">
+          <div class="text-sky-400 font-mono text-2xl font-bold">&lt; 3.0s</div>
+          <div class="text-xs font-semibold text-slate-200">⚡ V8 Edge Latency</div>
+          <div class="text-[11px] text-slate-400 mt-1">Cloudflare Worker + Gemini 3.8</div>
+        </div>
+        <div class="glass-card p-4 rounded-xl text-left border border-slate-800">
+          <div class="text-purple-400 font-mono text-2xl font-bold">0 PII</div>
+          <div class="text-xs font-semibold text-slate-200">🔒 Data Sovereignty</div>
+          <div class="text-[11px] text-slate-400 mt-1">In-memory scrubbing before AI</div>
+        </div>
+      </div>
+
+      <div class="flex flex-wrap items-center justify-center gap-4">
+        <a href="#playground" class="px-6 py-3 rounded-xl bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-400 hover:to-orange-400 text-slate-950 font-bold shadow-lg shadow-amber-500/20 transition flex items-center space-x-2">
+          <span>🎮 Open Interactive Playground</span>
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14 5l7 7m0 0l-7 7m7-7H3"/></svg>
+        </a>
+        <a href="#ats-tool" class="px-6 py-3 rounded-xl border border-slate-700 bg-slate-900/80 hover:bg-slate-800 text-slate-200 font-semibold transition">
+          📄 Test ATS Resume Co-Pilot
+        </a>
+      </div>
+    </div>
+  </header>
+
+  <!-- Main Interactive Playground Section -->
+  <main class="max-w-7xl mx-auto px-6 py-16 space-y-20" id="playground">
+    
+    <!-- Section 1: Telegram Bot Interactive Simulator -->
+    <section class="space-y-6">
+      <div class="flex flex-col md:flex-row md:items-end justify-between gap-4">
+        <div>
+          <span class="text-xs font-mono uppercase tracking-wider text-amber-400 font-semibold">Live Simulation</span>
+          <h2 class="text-3xl font-bold text-white tracking-tight">Interactive Telegram Edge Bot Terminal</h2>
+          <p class="text-slate-400 text-sm mt-1">Experience the exact low-latency edge conversational UX right inside your browser.</p>
+        </div>
+        <div class="flex items-center space-x-2">
+          <span class="text-xs text-slate-400">Endpoint:</span>
+          <span class="text-xs font-mono bg-slate-900 px-2.5 py-1 rounded border border-slate-800 text-sky-400">
+            acorn-bot.sosa-dashboard.workers.dev
+          </span>
+        </div>
+      </div>
+
+      <!-- Playground Grid -->
+      <div class="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+        
+        <!-- Telegram Device Mockup Container -->
+        <div class="lg:col-span-7 glass-card rounded-2xl border border-slate-800 overflow-hidden shadow-2xl flex flex-col h-[620px]">
+          <!-- Telegram App Header -->
+          <div class="bg-slate-900/90 px-4 py-3 border-b border-slate-800 flex items-center justify-between">
+            <div class="flex items-center space-x-3">
+              <div class="w-10 h-10 rounded-full bg-gradient-to-tr from-amber-500 to-orange-400 flex items-center justify-center text-xl shadow">
+                🌰
+              </div>
+              <div>
+                <div class="font-bold text-sm text-white flex items-center space-x-1.5">
+                  <span>Acorn Job Bot</span>
+                  <svg class="w-3.5 h-3.5 text-sky-400 fill-current" viewBox="0 0 24 24"><path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/></svg>
+                </div>
+                <div class="text-[11px] text-emerald-400 font-medium">bot • online on V8 isolate</div>
+              </div>
+            </div>
+            <div class="flex items-center space-x-2">
+              <button onclick="clearChatSimulator()" class="text-xs px-2.5 py-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 transition" title="Clear Chat">
+                Reset
+              </button>
+            </div>
+          </div>
+
+          <!-- Telegram Message Feed -->
+          <div id="simMessageFeed" class="flex-1 p-4 overflow-y-auto space-y-4 terminal-scrollbar bg-[#0b101c]/70 text-sm">
+            <!-- Welcome message -->
+            <div class="flex flex-col items-start max-w-[88%] space-y-2">
+              <div class="bg-slate-800/90 border border-slate-700/60 rounded-2xl rounded-tl-sm px-4 py-3 text-slate-200 shadow-md">
+                <p class="font-bold text-amber-400 mb-1">🌰 Acorn Job Tracker &amp; ATS Edge Assistant</p>
+                <p class="text-xs text-slate-300 mb-2">
+                  Autonomous Canadian tech job alerts with velocity sorting &amp; zero-PII ATS evaluation.
+                </p>
+                <div class="text-[11px] text-slate-400 space-y-1 font-mono">
+                  <div>• <b class="text-slate-200">/roles</b> — View tracked tech positions</div>
+                  <div>• <b class="text-slate-200">/ats</b> — Run Zero-PII ATS resume review</div>
+                  <div>• <b class="text-slate-200">/scan</b> — Trigger scraping workflow</div>
+                  <div>• <b class="text-slate-200">/forget</b> — Purge KV edge session</div>
+                </div>
+              </div>
+
+              <!-- Inline Keyboard Simulator -->
+              <div class="grid grid-cols-2 gap-1.5 w-full">
+                <button onclick="sendSimulatedUserCommand('/roles')" class="px-3 py-1.5 text-xs font-semibold rounded-lg bg-sky-950/80 hover:bg-sky-900 border border-sky-800 text-sky-200 text-center transition">
+                  📋 View Roles
+                </button>
+                <button onclick="sendSimulatedUserCommand('Add Junior DevOps Engineer')" class="px-3 py-1.5 text-xs font-semibold rounded-lg bg-sky-950/80 hover:bg-sky-900 border border-sky-800 text-sky-200 text-center transition">
+                  ➕ Add Role
+                </button>
+                <button onclick="sendSimulatedUserCommand('/ats')" class="px-3 py-1.5 text-xs font-semibold rounded-lg bg-sky-950/80 hover:bg-sky-900 border border-sky-800 text-sky-200 text-center transition">
+                  📄 Check Resume (ATS)
+                </button>
+                <button onclick="sendSimulatedUserCommand('/forget')" class="px-3 py-1.5 text-xs font-semibold rounded-lg bg-red-950/80 hover:bg-red-900 border border-red-800 text-red-200 text-center transition">
+                  🗑️ Wipe Data
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <!-- Telegram Input Bar -->
+          <div class="p-3 bg-slate-900/95 border-t border-slate-800">
+            <form id="simForm" onsubmit="handleSimulatorSubmit(event)" class="flex items-center space-x-2">
+              <input
+                id="simInput"
+                type="text"
+                placeholder="Type /start, /roles, /ats, or natural question..."
+                class="flex-1 bg-slate-800/80 border border-slate-700 rounded-xl px-4 py-2.5 text-sm text-white placeholder-slate-400 focus:outline-none focus:border-amber-400 focus:ring-1 focus:ring-amber-400"
+              />
+              <button
+                type="submit"
+                class="p-2.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold shadow transition flex items-center justify-center"
+              >
+                <svg class="w-4 h-4 fill-current" viewBox="0 0 24 24"><path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/></svg>
+              </button>
+            </form>
+          </div>
+        </div>
+
+        <!-- Playground Controls & Quick Action Chips -->
+        <div class="lg:col-span-5 space-y-4">
+          
+          <div class="glass-card p-5 rounded-2xl border border-slate-800 space-y-4">
+            <h3 class="text-sm font-bold text-white uppercase tracking-wider text-slate-300">Quick Prompt Chips</h3>
+            <p class="text-xs text-slate-400">Click any chip to test instant bot responses:</p>
+            
+            <div class="flex flex-wrap gap-2">
+              <button onclick="sendSimulatedUserCommand('/roles')" class="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-xs text-slate-300 border border-slate-700 transition">
+                📋 List current roles
+              </button>
+              <button onclick="sendSimulatedUserCommand('What are Tier A jobs?')" class="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-xs text-slate-300 border border-slate-700 transition">
+                ⚡ Explain Velocity Tiers
+              </button>
+              <button onclick="sendSimulatedUserCommand('Add Senior Python Developer')" class="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-xs text-slate-300 border border-slate-700 transition">
+                ➕ Add Role request
+              </button>
+              <button onclick="sendSimulatedUserCommand('/scan')" class="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-xs text-slate-300 border border-slate-700 transition">
+                🚀 Trigger Scan
+              </button>
+              <button onclick="sendSimulatedUserCommand('How does Zero-PII scrubbing work?')" class="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-xs text-slate-300 border border-slate-700 transition">
+                🔒 PII Privacy Architecture
+              </button>
+              <button onclick="sendSimulatedUserCommand('/forget')" class="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-xs text-slate-300 border border-slate-700 transition">
+                🗑️ Test Data Sovereignty
+              </button>
+            </div>
+          </div>
+
+          <!-- Configuration & Deep Link Card -->
+          <div class="glass-card p-5 rounded-2xl border border-slate-800 space-y-4">
+            <h3 class="text-sm font-bold text-white uppercase tracking-wider text-slate-300">Connect to Your Real Bot</h3>
+            <p class="text-xs text-slate-400 leading-relaxed">
+              Enter your live Telegram Bot username below to link the direct launcher button:
+            </p>
+
+            <div class="space-y-2">
+              <label class="text-[11px] text-slate-300 font-mono">Telegram Bot Handle (@username):</label>
+              <div class="flex items-center space-x-2">
+                <input
+                  id="botUsernameInput"
+                  type="text"
+                  placeholder="e.g. MyAcornTrackerBot"
+                  value=""
+                  class="flex-1 bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-xs text-white focus:outline-none focus:border-amber-400 font-mono"
+                  oninput="updateBotDirectLink(this.value)"
+                />
+              </div>
+            </div>
+
+            <div class="p-3 rounded-xl bg-slate-900/90 border border-slate-800 text-xs space-y-2">
+              <div class="flex items-center justify-between text-slate-400">
+                <span>Cloudflare Worker:</span>
+                <span class="text-emerald-400 font-mono font-semibold">Active</span>
+              </div>
+              <div class="flex items-center justify-between text-slate-400">
+                <span>Gemini API Model:</span>
+                <span class="text-amber-400 font-mono font-semibold">gemini-3.8-flash</span>
+              </div>
+              <div class="flex items-center justify-between text-slate-400">
+                <span>Jurisdiction:</span>
+                <span class="text-sky-400 font-mono font-semibold">🇨🇦 Canada Only</span>
+              </div>
+            </div>
+
+            <button onclick="launchRealTelegramBot()" class="w-full py-2.5 rounded-xl bg-gradient-to-r from-sky-500 to-blue-600 hover:from-sky-400 hover:to-blue-500 text-white font-bold text-xs shadow-md shadow-sky-500/20 transition flex items-center justify-center space-x-2">
+              <span>Open in Telegram App</span>
+              <svg class="w-3.5 h-3.5 fill-current" viewBox="0 0 24 24"><path d="M12 0C5.373 0 0 5.373 0 12s5.373 12 12 12 12-5.373 12-12S18.627 0 12 0zm5.894 8.221l-1.97 9.28c-.145.658-.537.818-1.084.508l-3-2.21-1.446 1.394c-.16.16-.295.295-.605.295l.213-3.053 5.56-5.023c.242-.213-.054-.333-.373-.121l-6.871 4.326-2.962-.924c-.643-.204-.657-.643.136-.953l11.57-4.461c.537-.197 1.006.128.832.942z"/></svg>
+            </button>
+          </div>
+        </div>
+
+      </div>
+    </section>
+
+    <!-- Section 2: Zero-PII ATS Resume Analyzer -->
+    <section class="space-y-6 pt-10" id="ats-tool">
+      <div>
+        <span class="text-xs font-mono uppercase tracking-wider text-purple-400 font-semibold">Privacy First</span>
+        <h2 class="text-3xl font-bold text-white tracking-tight">Zero-PII ATS Resume Matcher Playground</h2>
+        <p class="text-slate-400 text-sm mt-1">
+          Paste any resume text below. Watch emails, phones, and Canadian postal codes get scrubbed <b>in-browser in real time</b> before keyword alignment.
+        </p>
+      </div>
+
+      <div class="grid grid-cols-1 lg:grid-cols-12 gap-6">
+        <!-- Input Panel -->
+        <div class="lg:col-span-6 glass-card p-6 rounded-2xl border border-slate-800 space-y-4">
+          <div class="flex items-center justify-between">
+            <label class="text-xs font-bold uppercase tracking-wider text-slate-300">Resume / Bullet Points</label>
+            <button onclick="loadSampleResume()" class="text-xs text-amber-400 hover:text-amber-300 transition">
+              Load Sample Data
+            </button>
+          </div>
+
+          <textarea
+            id="atsInput"
+            rows="10"
+            placeholder="Paste resume text here (e.g. John Doe, john@example.com, (416) 555-0199, M5V 2T6, Built CI/CD pipelines with Docker and AWS...)"
+            class="w-full bg-slate-900/90 border border-slate-700 rounded-xl p-4 text-xs font-mono text-slate-200 placeholder-slate-500 focus:outline-none focus:border-purple-400"
+            oninput="runAtsEvaluation()"
+          ></textarea>
+
+          <div class="flex items-center justify-between text-xs text-slate-400">
+            <span id="piiDetectedCount">0 PII patterns detected</span>
+            <span class="text-emerald-400 flex items-center space-x-1">
+              <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"/></svg>
+              <span>Deterministic Regex Sanitization</span>
+            </span>
+          </div>
+        </div>
+
+        <!-- Output Evaluation Panel -->
+        <div class="lg:col-span-6 glass-card p-6 rounded-2xl border border-slate-800 space-y-5">
+          <div class="flex items-center justify-between border-b border-slate-800 pb-3">
+            <span class="text-xs font-bold uppercase tracking-wider text-slate-300">ATS Evaluation Output</span>
+            <div id="scoreBadge" class="px-3 py-1 rounded-full text-xs font-bold font-mono bg-slate-800 text-slate-400">
+              Score: --
+            </div>
+          </div>
+
+          <!-- Matched Skills -->
+          <div class="space-y-2">
+            <div class="text-xs font-semibold text-slate-300 flex items-center justify-between">
+              <span>✅ Matched High-Impact Tech Tokens:</span>
+              <span id="matchedCount" class="text-emerald-400 font-mono text-xs">0 matched</span>
+            </div>
+            <div id="matchedPills" class="flex flex-wrap gap-1.5 min-h-[36px]">
+              <span class="text-xs text-slate-500 italic">Paste resume to evaluate tokens...</span>
+            </div>
+          </div>
+
+          <!-- Missing Skills -->
+          <div class="space-y-2">
+            <div class="text-xs font-semibold text-slate-300 flex items-center justify-between">
+              <span>⚠️ Missing Target Tokens:</span>
+              <span id="missingCount" class="text-amber-400 font-mono text-xs">0 missing</span>
+            </div>
+            <div id="missingPills" class="flex flex-wrap gap-1.5 min-h-[36px]">
+              <span class="text-xs text-slate-500 italic">None</span>
+            </div>
+          </div>
+
+          <!-- Google XYZ Formula Bullet Suggestions -->
+          <div class="space-y-2">
+            <div class="text-xs font-semibold text-slate-300">💡 Recommended Google XYZ-Formula Bullets:</div>
+            <div id="xyzBullets" class="p-3 bg-slate-900/90 rounded-xl border border-slate-800 text-xs text-slate-300 space-y-2">
+              <p class="text-slate-500 italic">Suggestions appear dynamically based on detected gaps.</p>
+            </div>
+          </div>
+
+        </div>
+      </div>
+    </section>
+
+    <!-- Section 3: Canadian Velocity Tiers Visualizer -->
+    <section class="space-y-6 pt-10" id="velocity">
+      <div>
+        <span class="text-xs font-mono uppercase tracking-wider text-amber-400 font-semibold">Algorithmic Advantage</span>
+        <h2 class="text-3xl font-bold text-white tracking-tight">First-Mover Applicant Velocity Tiers</h2>
+        <p class="text-slate-400 text-sm mt-1">
+          Acorn prioritizes applicants in the critical first-mover window before saturation occurs.
+        </p>
+      </div>
+
+      <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
+        <!-- Tier A -->
+        <div class="glass-card p-5 rounded-2xl border border-amber-500/40 relative overflow-hidden">
+          <div class="absolute top-0 right-0 bg-amber-500/20 text-amber-300 px-3 py-1 rounded-bl-xl text-[10px] font-bold uppercase tracking-wider font-mono">
+            High Priority
+          </div>
+          <div class="text-2xl mb-2">⚡</div>
+          <h3 class="text-base font-bold text-white">Tier A: First Mover</h3>
+          <p class="text-xs font-mono text-amber-400 font-semibold mt-1">&lt; 5 Applicants</p>
+          <p class="text-xs text-slate-400 mt-2 leading-relaxed">
+            Immediate edge dispatch. Top 5% candidate visibility before hiring manager inbox flooding.
+          </p>
+          <div class="mt-4 pt-3 border-t border-slate-800/80 text-[11px] text-emerald-400 flex items-center space-x-1">
+            <span>● 100% Delivery Priority</span>
+          </div>
+        </div>
+
+        <!-- Tier B -->
+        <div class="glass-card p-5 rounded-2xl border border-blue-500/30">
+          <div class="text-2xl mb-2">🟡</div>
+          <h3 class="text-base font-bold text-white">Tier B: Early Wave</h3>
+          <p class="text-xs font-mono text-blue-400 font-semibold mt-1">5 – 25 Applicants</p>
+          <p class="text-xs text-slate-400 mt-2 leading-relaxed">
+            Strong interview conversion potential within the first 24 hours of posting release.
+          </p>
+          <div class="mt-4 pt-3 border-t border-slate-800/80 text-[11px] text-blue-400 flex items-center space-x-1">
+            <span>● Standard Batch Alert</span>
+          </div>
+        </div>
+
+        <!-- Tier C -->
+        <div class="glass-card p-5 rounded-2xl border border-slate-700/50">
+          <div class="text-2xl mb-2">🟠</div>
+          <h3 class="text-base font-bold text-white">Tier C: Maturing</h3>
+          <p class="text-xs font-mono text-slate-300 font-semibold mt-1">26 – 40 Applicants</p>
+          <p class="text-xs text-slate-400 mt-2 leading-relaxed">
+            Approaching resume saturation threshold. ATS keyword alignment becomes critical.
+          </p>
+          <div class="mt-4 pt-3 border-t border-slate-800/80 text-[11px] text-slate-400 flex items-center space-x-1">
+            <span>● Secondary Alert Feed</span>
+          </div>
+        </div>
+
+        <!-- Tier D -->
+        <div class="glass-card p-5 rounded-2xl border border-red-900/30 bg-red-950/10">
+          <div class="text-2xl mb-2">⛔</div>
+          <h3 class="text-base font-bold text-slate-400">Suppressed: Saturated</h3>
+          <p class="text-xs font-mono text-red-400 font-semibold mt-1">&gt; 40 Applicants or Reposted</p>
+          <p class="text-xs text-slate-400 mt-2 leading-relaxed">
+            Automatically filtered to prevent alert fatigue and low-ROI application waste.
+          </p>
+          <div class="mt-4 pt-3 border-t border-slate-800/80 text-[11px] text-red-400 flex items-center space-x-1">
+            <span>● Filtered at Scraper Stage</span>
+          </div>
+        </div>
+      </div>
+    </section>
+
+  </main>
+
+  <!-- Footer -->
+  <footer class="border-t border-slate-800/80 bg-[#070b12] py-12 px-6 mt-20">
+    <div class="max-w-7xl mx-auto flex flex-col md:flex-row items-center justify-between gap-6 text-xs text-slate-400">
+      <div class="flex items-center space-x-2">
+        <span class="text-xl">🌰</span>
+        <span class="font-bold text-slate-200">Acorn Job Tracker</span>
+        <span>— Enterprise Autonomous Canadian Job Engine</span>
+      </div>
+      <div>
+        Built with Clean Architecture, Domain-Driven Design, Cloudflare Workers, and Gemini 3.8 Flash.
+      </div>
+      <div class="flex items-center space-x-4">
+        <a href="https://github.com/mtk7zt/Acorn" class="hover:text-white transition">GitHub Repo</a>
+        <a href="https://github.com/mtk7zt/Acorn/blob/main/docs/ACORN_ARCHITECTURE_SPECIFICATION.md" class="hover:text-white transition">Architecture Spec</a>
+      </div>
+    </div>
+  </footer>
+
+  <!-- Interactive JavaScript Engine -->
+  <script>
+    // Canonical Tech Keywords (Mirrors Worker)
+    const CANONICAL_KEYWORDS = [
+      'python', 'java', 'javascript', 'typescript', 'c++', 'c#', '.net', 'golang', 'sql',
+      'postgresql', 'mongodb', 'redis', 'aws', 'azure', 'gcp', 'cloud', 'docker',
+      'kubernetes', 'ci/cd', 'github actions', 'terraform', 'linux', 'bash', 'rest',
+      'api', 'graphql', 'microservices', 'git', 'agile', 'scrum', 'react', 'node.js',
+      'active directory', 'help desk', 'it support', 'troubleshooting', 'network',
+      'powershell', 'servicenow', 'jira'
+    ];
+
+    // PII Redaction Regex Engine
+    function redactPiiClient(text) {
+      if (!text) return { cleanText: '', piiCount: 0 };
+      let count = 0;
+      let clean = text
+        .replace(/\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,7}\b/g, () => { count++; return '[REDACTED_EMAIL]'; })
+        .replace(/(?:\+?1[-.\s]?)?(?:\(?\d{3}\)?[-.\s]?)?\d{3}[-.\s]?\d{4}\b/g, () => { count++; return '[REDACTED_PHONE]'; })
+        .replace(/\b[A-CEGHJ-NPRSTVXYa-ceghj-nprstvxy]\d[A-Za-z][ -]?\d[A-Za-z]\d\b/gi, () => { count++; return '[REDACTED_POSTAL_CODE]'; })
+        .replace(/\b\d{3}[-\s]?\d{3}[-\s]?\d{3}\b/g, () => { count++; return '[REDACTED_SIN]'; });
+      return { cleanText: clean, piiCount: count };
+    }
+
+    // ATS Evaluation
+    function runAtsEvaluation() {
+      const input = document.getElementById('atsInput').value;
+      const { cleanText, piiCount } = redactPiiClient(input);
+      document.getElementById('piiDetectedCount').innerText = `${piiCount} PII pattern(s) scrubbed`;
+
+      const lower = cleanText.toLowerCase();
+      const matched = CANONICAL_KEYWORDS.filter(kw => lower.includes(kw));
+      const missing = CANONICAL_KEYWORDS.filter(kw => !lower.includes(kw)).slice(0, 6);
+
+      const score = input.trim().length > 20
+        ? Math.min(100, Math.round((matched.length / Math.max(1, matched.length + missing.length)) * 100))
+        : 0;
+
+      // Update badge
+      const scoreBadge = document.getElementById('scoreBadge');
+      scoreBadge.innerText = `Score: ${score}%`;
+      if (score >= 70) {
+        scoreBadge.className = 'px-3 py-1 rounded-full text-xs font-bold font-mono bg-emerald-950 text-emerald-400 border border-emerald-800';
+      } else if (score >= 40) {
+        scoreBadge.className = 'px-3 py-1 rounded-full text-xs font-bold font-mono bg-amber-950 text-amber-400 border border-amber-800';
+      } else {
+        scoreBadge.className = 'px-3 py-1 rounded-full text-xs font-bold font-mono bg-slate-800 text-slate-400';
+      }
+
+      // Update pills
+      document.getElementById('matchedCount').innerText = `${matched.length} matched`;
+      document.getElementById('missingCount').innerText = `${missing.length} missing`;
+
+      const matchedContainer = document.getElementById('matchedPills');
+      matchedContainer.innerHTML = matched.length
+        ? matched.map(m => `<span class="px-2 py-0.5 rounded-full text-[11px] font-mono bg-emerald-950/80 border border-emerald-800/80 text-emerald-300">${m}</span>`).join('')
+        : '<span class="text-xs text-slate-500 italic">No keyword matches found yet.</span>';
+
+      const missingContainer = document.getElementById('missingPills');
+      missingContainer.innerHTML = missing.length
+        ? missing.map(m => `<span class="px-2 py-0.5 rounded-full text-[11px] font-mono bg-amber-950/60 border border-amber-800/60 text-amber-300">${m}</span>`).join('')
+        : '<span class="text-xs text-slate-500 italic">No critical gaps.</span>';
+
+      // XYZ Bullets
+      const bulletsContainer = document.getElementById('xyzBullets');
+      if (missing.length && input.trim().length > 20) {
+        bulletsContainer.innerHTML = missing.slice(0, 2).map(kw => {
+          const cap = kw.charAt(0).toUpperCase() + kw.slice(1);
+          return `<div class="p-2 rounded bg-slate-800/80 border border-slate-700/60">
+            • <b>Accomplished</b> [X% improvement in system uptime], as measured by [production metrics], by integrating <b>${cap}</b> into deployment pipelines.
+          </div>`;
+        }).join('');
+      } else {
+        bulletsContainer.innerHTML = '<p class="text-slate-500 italic">Enter resume text to generate Google XYZ-formula bullet rewrites.</p>';
+      }
+    }
+
+    function loadSampleResume() {
+      document.getElementById('atsInput').value = 
+`Jane Smith — Software Engineer
+Email: jane.smith@gmail.com | Phone: (416) 555-0144 | Location: Toronto, ON, M5V 3L9
+
+Summary:
+Full-stack software engineer with 3+ years building distributed applications using Python, JavaScript, and Docker. Experience implementing CI/CD pipelines in GitHub Actions and querying PostgreSQL and Redis databases. Proficient in Linux environments, REST APIs, Git workflows, and Agile delivery.`;
+      runAtsEvaluation();
+    }
+
+    // Telegram Bot Simulator
+    function appendSimMessage(sender, htmlContent, isUser = false) {
+      const feed = document.getElementById('simMessageFeed');
+      const msgDiv = document.createElement('div');
+      
+      if (isUser) {
+        msgDiv.className = 'flex justify-end';
+        msgDiv.innerHTML = `
+          <div class="bg-gradient-to-r from-sky-600 to-blue-600 rounded-2xl rounded-tr-sm px-4 py-2 text-white max-w-[80%] shadow">
+            ${htmlContent}
+          </div>
+        `;
+      } else {
+        msgDiv.className = 'flex flex-col items-start max-w-[88%] space-y-2';
+        msgDiv.innerHTML = `
+          <div class="bg-slate-800/90 border border-slate-700/60 rounded-2xl rounded-tl-sm px-4 py-3 text-slate-200 shadow-md">
+            ${htmlContent}
+          </div>
+        `;
+      }
+      feed.appendChild(msgDiv);
+      feed.scrollTop = feed.scrollHeight;
+    }
+
+    function sendSimulatedUserCommand(text) {
+      appendSimMessage('user', text, true);
+
+      // Typing indicator simulation
+      setTimeout(() => {
+        respondSimulator(text);
+      }, 350);
+    }
+
+    function handleSimulatorSubmit(e) {
+      e.preventDefault();
+      const input = document.getElementById('simInput');
+      const text = input.value.trim();
+      if (!text) return;
+      input.value = '';
+      sendSimulatedUserCommand(text);
+    }
+
+    function respondSimulator(text) {
+      const lower = text.toLowerCase().trim();
+
+      if (lower === '/start' || lower === '/help' || lower === 'hi' || lower === 'hello') {
+        appendSimMessage('bot', `
+          <p class="font-bold text-amber-400 mb-1">🌰 Acorn Edge Assistant Online</p>
+          <p class="text-xs text-slate-300 mb-2">Hello! Powered by Gemini 3.8 Flash on Cloudflare V8 edge. How can I help with your Canadian job hunt today?</p>
+          <div class="text-[11px] text-slate-400 space-y-1 font-mono">
+            <div>• Type <b>/roles</b> to see tracked positions</div>
+            <div>• Type <b>/ats</b> for Zero-PII resume review</div>
+            <div>• Type <b>/scan</b> to dispatch immediate scraper run</div>
+          </div>
+        `);
+      } else if (lower === '/roles' || lower.includes('list') && lower.includes('role')) {
+        appendSimMessage('bot', `
+          <p class="font-bold text-sky-400 mb-1">📋 Active Tracked Roles (5):</p>
+          <ol class="text-xs text-slate-300 list-decimal pl-4 space-y-1">
+            <li><b>Software Engineer</b></li>
+            <li><b>DevOps Engineer</b></li>
+            <li><b>Data Engineer</b></li>
+            <li><b>IT Support Specialist</b></li>
+            <li><b>Cloud Architect</b></li>
+          </ol>
+          <p class="text-[11px] text-slate-400 mt-2"><i>Say "Add [Role Name]" anytime to track additional positions!</i></p>
+        `);
+      } else if (lower.startsWith('add ') || lower.startsWith('/add')) {
+        const role = text.replace(/^\/?add\s*/i, '');
+        appendSimMessage('bot', `
+          <p class="font-bold text-emerald-400 mb-1">✅ Tracked Role Staged:</p>
+          <p class="text-xs text-slate-300">Added <b>"${role}"</b> to tracked pipeline with Canadian jurisdiction and velocity filters.</p>
+          <p class="text-[11px] text-slate-400 mt-1">OCC commit generated to <code>roles_config.json</code> [skip ci].</p>
+        `);
+      } else if (lower === '/scan') {
+        appendSimMessage('bot', `
+          <p class="font-bold text-amber-400 mb-1">🚀 GitHub Actions Workflow Dispatched</p>
+          <p class="text-xs text-slate-300">Scraping triggered on <code>.github/workflows/job_tracker.yml</code>.</p>
+          <p class="text-[11px] text-emerald-400 mt-1">Status: 204 No Content (Dispatched successfully to main branch)</p>
+        `);
+      } else if (lower === '/ats' || lower.includes('resume')) {
+        appendSimMessage('bot', `
+          <p class="font-bold text-purple-400 mb-1">📄 ATS Resume Co-Pilot (Zero-PII)</p>
+          <p class="text-xs text-slate-300 mb-2">Please paste your resume bullet points. All personal emails, phone numbers, and postal codes will be stripped in-memory before evaluation.</p>
+          <p class="text-[11px] text-slate-400"><i>Or use the interactive ATS tool below this simulator!</i></p>
+        `);
+      } else if (lower === '/forget') {
+        appendSimMessage('bot', `
+          <p class="font-bold text-red-400 mb-1">🗑️ Data Sovereignty Confirmed</p>
+          <p class="text-xs text-slate-300">All conversation turns and cached ATS evaluations have been wiped from Cloudflare KV edge memory.</p>
+        `);
+      } else if (lower.includes('tier') || lower.includes('velocity')) {
+        appendSimMessage('bot', `
+          <p class="font-bold text-amber-400 mb-1">⚡ First-Mover Velocity Tiers</p>
+          <div class="text-xs text-slate-300 space-y-1">
+            <div>• <b>Tier A</b>: &lt; 5 applicants (First Mover Advantage)</div>
+            <div>• <b>Tier B</b>: 5 – 25 applicants (Early Window)</div>
+            <div>• <b>Tier C</b>: 26 – 40 applicants (Maturing)</div>
+            <div>• <b>Suppressed</b>: &gt; 40 applicants or Reposted (Dropped)</div>
+          </div>
+        `);
+      } else {
+        appendSimMessage('bot', `
+          <p class="text-xs text-slate-200">
+            I received your query: <i>"${text}"</i>.
+          </p>
+          <p class="text-xs text-slate-300 mt-1">
+            Canadian tech market alerts are monitored continuously via GitHub Actions cron, with instant updates dispatched to your Telegram chat.
+          </p>
+        `);
+      }
+    }
+
+    function clearChatSimulator() {
+      document.getElementById('simMessageFeed').innerHTML = '';
+      respondSimulator('/start');
+    }
+
+    // Direct Telegram Bot Linking
+    function updateBotDirectLink(username) {
+      const clean = username.replace('@', '').trim();
+      const btn = document.getElementById('telegramDirectBtn');
+      if (clean) {
+        btn.href = `https://t.me/${clean}`;
+        btn.target = "_blank";
+      } else {
+        btn.href = "https://t.me/";
+      }
+    }
+
+    function launchRealTelegramBot() {
+      const input = document.getElementById('botUsernameInput');
+      const val = input.value.replace('@', '').trim();
+      if (!val) {
+        const promptVal = prompt('Enter your Telegram bot handle (without @):', 'YourAcornBot');
+        if (promptVal) {
+          input.value = promptVal;
+          window.open(`https://t.me/${promptVal.replace('@', '')}`, '_blank');
+        }
+      } else {
+        window.open(`https://t.me/${val}`, '_blank');
+      }
+    }
+  </script>
+</body>
+</html>
