@@ -522,6 +522,66 @@ async function handleMessage(message, env) {
   // Visual feedback
   await sendTyping(chatId, env);
 
+  // Command: /start or /help
+  if (textTrim === '/start' || textTrim === '/help') {
+    const welcomeText = (
+      '🌰 <b>Acorn Job Tracker & ATS Edge Assistant</b>\n\n' +
+      'Always-on edge intelligence for early Canadian tech job alerts and resume tailoring.\n\n' +
+      '<b>⚡ Commands & Capabilities:</b>\n' +
+      '• <code>/roles</code> — View currently tracked roles\n' +
+      '• <code>/ats</code> — Run Zero-PII ATS resume review\n' +
+      '• <code>/scan</code> — Trigger an immediate scraping run\n' +
+      '• <code>/forget</code> — Wipe your session data from edge KV\n\n' +
+      '<i>Or send any question in natural language to manage roles and settings!</i>'
+    );
+    await sendMessage(chatId, welcomeText, env, {
+      reply_markup: {
+        inline_keyboard: [
+          [
+            { text: '📋 View Roles', callback_data: 'list_roles' },
+            { text: '➕ Add Role', callback_data: 'add_role_prompt' },
+          ],
+          [
+            { text: '📄 Check Resume (ATS)', callback_data: 'ats_prompt' },
+            { text: '🗑️ Wipe Data', callback_data: 'wipe_prompt' },
+          ],
+        ],
+      },
+    });
+    return;
+  }
+
+  // Command: /roles
+  if (textTrim === '/roles') {
+    try {
+      const { content } = await ghGet('roles_config.json', env);
+      const list = content.roles.map((r, i) => `${i + 1}. <b>${r}</b>`).join('\n');
+      await sendMessage(
+        chatId,
+        `📋 <b>Active Tracked Roles (${content.roles.length}):</b>\n\n${list}\n\n<i>Use /scan to trigger a new scrape run!</i>`,
+        env
+      );
+    } catch {
+      await sendMessage(chatId, '⚠️ Unable to fetch roles from repository.', env);
+    }
+    return;
+  }
+
+  // Command: /scan
+  if (textTrim === '/scan') {
+    try {
+      const ok = await ghDispatchWorkflow(env);
+      if (ok) {
+        await sendMessage(chatId, '🚀 <b>Job Tracker Scan Triggered:</b> GitHub Actions workflow dispatched successfully!', env);
+      } else {
+        await sendMessage(chatId, '⚠️ GitHub Actions dispatch returned non-204 status. Check GITHUB_PAT.', env);
+      }
+    } catch (err) {
+      await sendMessage(chatId, `⚠️ Failed to trigger workflow: ${err?.message || err}`, env);
+    }
+    return;
+  }
+
   // Command 1: Data Sovereignty / Wipe My Data
   if (textTrim === '/forget' || textTrim.toLowerCase() === 'wipe my data') {
     await wipeUserData(chatId, env);
@@ -583,11 +643,12 @@ async function handleMessage(message, env) {
     rawLLMOutput = await callGemini(history, rawText, systemPrompt, env);
   } catch (err) {
     console.error('Gemini reasoning exception:', err?.message || err);
-    await sendMessage(
-      chatId,
-      '⚠️ <b>AI Notice:</b> The assistant is temporarily unreachable. Please retry in a moment.',
-      env
-    );
+    const msg = String(err?.message || '');
+    const isQuota = msg.includes('402') || msg.includes('depleted') || msg.includes('RESOURCE_EXHAUSTED');
+    const notice = isQuota
+      ? '⚠️ <b>Gemini Quota Notice:</b> Your Google AI Studio prepayment credits are depleted (HTTP 402).\n\n💡 <i>Create a new free-tier key at aistudio.google.com without billing attached for 15 free req/min!</i>\n\n✅ <b>Core bot commands (/roles, /ats, /scan, /forget) continue to work normally.</b>'
+      : '⚠️ <b>AI Notice:</b> The assistant is temporarily unreachable. Core bot commands (/roles, /ats, /scan, /forget) remain fully functional.';
+    await sendMessage(chatId, notice, env);
     return;
   }
 
