@@ -120,12 +120,17 @@ function evaluateATSResume(cleanResumeText, targetRole = 'Software / IT Support 
 // ─────────────────────────────────────────────────────────────────────────────
 
 async function tgPost(method, body, env) {
-  const res = await fetch(`https://api.telegram.org/bot${env.TELEGRAM_BOT_TOKEN}/${method}`, {
+  const token = String(env.TELEGRAM_BOT_TOKEN || '').trim();
+  const res = await fetch(`https://api.telegram.org/bot${token}/${method}`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
   });
-  return res.json();
+  const data = await res.json();
+  if (!data.ok) {
+    console.error(`Telegram API error on ${method}:`, JSON.stringify(data));
+  }
+  return data;
 }
 
 function sendMessage(chatId, text, env, extra = {}) {
@@ -302,6 +307,7 @@ Output ONLY a raw JSON object complying with this structure (no markdown fences,
 }
 
 async function callGemini(history, newMessage, systemPrompt, env) {
+  const apiKey = String(env.GEMINI_API_KEY || '').trim();
   const contents = [...history, { role: 'user', parts: [{ text: newMessage }] }];
 
   const body = {
@@ -321,7 +327,7 @@ async function callGemini(history, newMessage, systemPrompt, env) {
   let lastError = null;
   for (const endpoint of endpointsToTry) {
     try {
-      const res = await fetch(`${endpoint}?key=${env.GEMINI_API_KEY}`, {
+      const res = await fetch(`${endpoint}?key=${apiKey}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
@@ -349,6 +355,15 @@ async function callGemini(history, newMessage, systemPrompt, env) {
       if (err.message?.includes('HTTP 404')) continue;
       throw err;
     }
+  }
+
+  // Probe ListModels to identify exact account/key cause
+  try {
+    const probeRes = await fetch(`https://generativelanguage.googleapis.com/v1beta/models?key=${apiKey}`);
+    const probeData = await probeRes.text();
+    console.error('Gemini ListModels probe result:', probeData.slice(0, 500));
+  } catch (probeErr) {
+    console.error('Gemini ListModels probe network error:', probeErr?.message || probeErr);
   }
 
   throw lastError || new Error('All candidate Gemini model endpoints returned 404.');
