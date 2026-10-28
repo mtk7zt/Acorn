@@ -1,13 +1,13 @@
-# 🌰 Acorn AI: Multi-Board Canadian Job Tracker & Edge Conversational Assistant
+# 🌰 Acorn: AI Autonomous Job Tracker Engine
 
 [![CI/CD Job Tracker](https://github.com/mtk7zt/Acorn/actions/workflows/job_tracker.yml/badge.svg)](https://github.com/mtk7zt/Acorn/actions/workflows/job_tracker.yml)
 [![Python Version](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
 [![Cloudflare Workers](https://img.shields.io/badge/cloudflare-workers-orange.svg)](https://workers.cloudflare.com/)
-[![LLM](https://img.shields.io/badge/gemini-1.5%20flash-8E75B2.svg)](https://deepmind.google/technologies/gemini/)
+[![LLM](https://img.shields.io/badge/gemini-flash-8E75B2.svg)](https://deepmind.google/technologies/gemini/)
 [![Architecture](https://img.shields.io/badge/architecture-clean%20%2F%20DDD-green.svg)](docs/PROJECTED_ARCHITECTURE_SPECIFICATION.md)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-> **Acorn** is an intelligent, dual-engine job discovery and tracking ecosystem engineered specifically for the Canadian technology sector. It pairs a scheduled, distributed multi-board scraping pipeline with an always-on Cloudflare Worker edge AI assistant powered by Google Gemini 1.5 Flash.
+> **Acorn** is an **AI Autonomous Job Tracker Engine** engineered specifically for the Canadian technology sector. It pairs an autonomous distributed multi-board scraping pipeline with an always-on Cloudflare Worker edge AI assistant powered by Google Gemini.
 
 ---
 
