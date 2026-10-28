@@ -1,0 +1,38 @@
+name: "✨ Feature Request"
+description: "Suggest a new capability, enhancement, or optimization for Acorn."
+title: "[FEATURE]: "
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Have an idea to improve Acorn's speed, coverage, or ATS co-pilot intelligence? Let us know below!
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem / Opportunity
+      description: Is your feature request related to a specific challenge or limitation?
+      placeholder: "e.g. As a candidate, I want to track roles across Alberta and British Columbia remote postings..."
+    validations:
+      required: true
+  - type: textarea
+    id: solution
+    attributes:
+      label: Proposed Solution
+      description: Describe what you would like to see implemented.
+      placeholder: "e.g. Add province selector to Telegram inline keyboard..."
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives Considered
+      description: Describe any alternative solutions or features you considered.
+  - type: dropdown
+    id: priority
+    attributes:
+      label: Target Priority
+      options:
+        - "P1 - Critical Market Advantage"
+        - "P2 - User Experience Enhancement"
+        - "P3 - Nice to have"

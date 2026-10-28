@@ -1,0 +1,36 @@
+name: "🍁 Job Board Adapter Request"
+description: "Propose or specify a new Canadian job board integration (e.g. Eluta, TechToronto, Glassdoor CA)."
+title: "[ADAPTER]: "
+labels: ["integration", "scraper"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Acorn is built on the GoF Adapter Pattern under `src/acorn/infrastructure/scrapers/`. Propose new Canadian job feeds below!
+  - type: input
+    id: board_name
+    attributes:
+      label: Job Board Name
+      placeholder: "e.g. Eluta.ca, TorontoTechJobs.com, Communitech Job Board"
+    validations:
+      required: true
+  - type: input
+    id: board_url
+    attributes:
+      label: Target URL / Search Endpoint
+      placeholder: "https://www.eluta.ca/search?q=..."
+    validations:
+      required: true
+  - type: textarea
+    id: velocity_support
+    attributes:
+      label: Applicant Count / Velocity Signals
+      description: Does this job board display live applicant counts, application velocities, or repost dates?
+      placeholder: "e.g. Shows 'X people applied' or 'Posted 2 hours ago'..."
+    validations:
+      required: true
+  - type: textarea
+    id: rate_limiting
+    attributes:
+      label: Rate Limiting & Anti-Bot Considerations
+      description: Does this platform require Cloudflare Turnstile bypass, residential proxies, or simple HTTP scraping?

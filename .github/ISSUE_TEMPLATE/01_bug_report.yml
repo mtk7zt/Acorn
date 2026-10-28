@@ -1,0 +1,55 @@
+name: "🐛 Bug Report"
+description: "File a reproducible defect in Acorn's job scraper, Cloudflare Worker, or Web UI."
+title: "[BUG]: "
+labels: ["bug", "triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thank you for reporting an issue! Please provide detailed reproduction steps so maintainers can investigate.
+  - type: dropdown
+    id: component
+    attributes:
+      label: Affected Component
+      description: Which part of the Acorn architecture encountered this issue?
+      options:
+        - "Python Domain Pipeline (src/acorn/)"
+        - "Cloudflare Edge Worker (cloudflare-worker/)"
+        - "Web Playground UI (web/)"
+        - "GitHub Actions Automation (.github/workflows/)"
+        - "Terraform Infrastructure (terraform/)"
+        - "Telegram Bot Interface"
+    validations:
+      required: true
+  - type: textarea
+    id: description
+    attributes:
+      label: Bug Description
+      description: A clear and concise description of the defect.
+      placeholder: "e.g. Scraper accepted a non-Canadian location, or Gemini model returned 503..."
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Reproduction Steps
+      description: Steps or commands to trigger the defect.
+      placeholder: |
+        1. Run `python job_tracker_bot.py`
+        2. Set tracked role to '...'
+        3. Observe error output in console
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant Logs & Stack Traces
+      description: Paste any terminal output, pytest failures, or `npx wrangler tail` logs.
+      render: shell
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Security & Privacy Verification
+      options:
+        - label: "I confirm this report contains NO sensitive Personal Identifiable Information (PII), bot tokens, or private API keys."
+          required: true

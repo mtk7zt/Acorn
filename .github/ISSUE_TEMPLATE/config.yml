@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: 🌰 Acorn Architecture Specification
+    url: https://github.com/mtk7zt/Acorn/blob/main/docs/ACORN_ARCHITECTURE_SPECIFICATION.md
+    about: Read the Harvard-style engineering design paper and security specifications.
+  - name: 🔒 Report a Security Vulnerability
+    url: https://github.com/mtk7zt/Acorn/blob/main/SECURITY.md
+    about: Responsible disclosure guidelines conforming to NIST SP 800-53 Rev. 5.
