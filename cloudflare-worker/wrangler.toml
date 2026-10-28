@@ -1,0 +1,17 @@
+name = "acorn-bot"
+main = "index.js"
+compatibility_date = "2024-11-01"
+compatibility_flags = ["nodejs_compat"]
+
+# Workers KV namespace — run `npx wrangler kv namespace create CHAT_HISTORY`
+# then paste the id below
+[[kv_namespaces]]
+binding = "CHAT_HISTORY"
+id = "REPLACE_WITH_YOUR_KV_ID"
+
+# Secrets (set via CLI or Terraform):
+#   npx wrangler secret put TELEGRAM_BOT_TOKEN
+#   npx wrangler secret put TELEGRAM_SECRET_TOKEN
+#   npx wrangler secret put GEMINI_API_KEY
+#   npx wrangler secret put GITHUB_PAT
+#   npx wrangler secret put ALLOWED_CHAT_ID

@@ -7,23 +7,13 @@ on:
   workflow_dispatch:
     inputs:
       test_telegram:
-        description: 'Send a test message (with Add/Manage Role buttons) to Telegram'
+        description: 'Send a test connection message to Telegram'
         required: false
         default: 'false'
         type: choice
         options:
           - 'false'
           - 'true'
-      add_role:
-        description: 'Optional: Add new job role(s) (comma-separated, e.g. QA Analyst, DevOps Intern)'
-        required: false
-        default: ''
-        type: string
-      remove_role:
-        description: 'Optional: Remove a job role by exact title'
-        required: false
-        default: ''
-        type: string
 
 permissions:
   contents: write
@@ -47,44 +37,22 @@ jobs:
           python-version: '3.11'
 
       - name: Install dependencies
-        run: |
-          python -m pip install --upgrade pip
-          pip install python-jobspy requests beautifulsoup4 pandas
+        run: pip install -r requirements.txt
 
-      - name: Ensure state files exist
-        run: |
-          if [ ! -f seen_jobs.json ]; then
-            echo "{}" > seen_jobs.json
-          fi
+      - name: Run unit test suite
+        run: pytest tests/ -v
 
-      - name: Run Multi-Board Job Tracker & Process Telegram Role Buttons
+      - name: Run job tracker
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-          MAX_AGE_SECONDS: '3600'
-          INPUT_ADD_ROLE: ${{ github.event.inputs.add_role }}
-          INPUT_REMOVE_ROLE: ${{ github.event.inputs.remove_role }}
-          INPUT_TEST_TELEGRAM: ${{ github.event.inputs.test_telegram }}
-        run: |
-          ARGS=()
-          if [ -n "${INPUT_ADD_ROLE}" ]; then
-            ARGS+=(--add-role "${INPUT_ADD_ROLE}")
-          fi
-          if [ -n "${INPUT_REMOVE_ROLE}" ]; then
-            ARGS+=(--remove-role "${INPUT_REMOVE_ROLE}")
-          fi
-          if [ "${INPUT_TEST_TELEGRAM}" = "true" ]; then
-            ARGS+=(--test-telegram)
-          fi
-          python job_tracker_bot.py "${ARGS[@]}"
+          TEST_TELEGRAM: ${{ github.event.inputs.test_telegram || 'false' }}
+        run: python job_tracker_bot.py
 
-      - name: Save updated seen_jobs.json and roles_config.json to repository
+      - name: Commit updated state files
         run: |
           git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add seen_jobs.json roles_config.json 2>/dev/null || true
-          if ! git diff --staged --quiet; then
-            git commit -m "chore: update tracker state and roles [skip ci]"
-            git pull --rebase origin "${GITHUB_REF_NAME}" || true
-            git push
-          fi
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add seen_jobs.json roles_config.json bot_config.json
+          git diff --staged --quiet || git commit -m "chore: update job tracker state [skip ci]"
+          git push

@@ -1,0 +1,17 @@
+# Example Terraform Variables Template
+# Copy this file to `terraform.tfvars` and substitute real credentials.
+# NEVER commit terraform.tfvars containing real secrets to version control.
+
+cloudflare_api_token  = "YOUR_CLOUDFLARE_API_TOKEN"
+cloudflare_account_id = "YOUR_CLOUDFLARE_ACCOUNT_ID"
+environment           = "production"
+worker_name           = "acorn-bot"
+
+# Telegram Secrets
+telegram_bot_token    = "123456789:ABCdefGHIjklMNOpqrSTUvwxYZ"
+telegram_secret_token = "acorn_secure_random_token_9981"
+allowed_chat_ids      = "YOUR_TELEGRAM_USER_CHAT_ID,OPTIONAL_SECOND_CHAT_ID"
+
+# AI & GitHub Integration
+gemini_api_key        = "AIzaSy..."
+github_pat            = "github_pat_11..."

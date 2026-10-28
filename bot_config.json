@@ -1,0 +1,25 @@
+{
+  "max_age_seconds": 3600,
+  "cron_enabled": true,
+  "priority_1_locations": [
+    "mississauga", "toronto", "etobicoke",
+    "north york", "scarborough", "east york", "york"
+  ],
+  "priority_2_locations": [
+    "brampton", "oakville", "burlington", "milton",
+    "vaughan", "woodbridge", "markham", "richmond hill",
+    "thornhill", "pickering", "ajax", "whitby", "oshawa",
+    "newmarket", "aurora", "caledon", "halton", "peel",
+    "durham", "hamilton", "greater toronto", "gta"
+  ],
+  "excluded_senior_keywords": [
+    "senior", "sr.", "sr ", "staff", "principal",
+    "director", "vp ", "vice president", "head of",
+    "architect", "manager", "lead"
+  ],
+  "junior_override_keywords": [
+    "junior", "jr", "intern", "internship", "co-op",
+    "coop", "entry", "associate", "graduate",
+    "level 1", "tier 1", "l1"
+  ]
+}
