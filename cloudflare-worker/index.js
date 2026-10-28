@@ -13,11 +13,11 @@
 const REPO = 'mtk7zt/Acorn';
 const GITHUB_API = 'https://api.github.com';
 const CANDIDATE_GEMINI_ENDPOINTS = [
+  'https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:generateContent',
+  'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent',
   'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent',
   'https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-latest:generateContent',
   'https://generativelanguage.googleapis.com/v1/models/gemini-1.5-flash:generateContent',
-  'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent',
-  'https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent',
 ];
 let activeGeminiEndpoint = null;
 const MAX_HISTORY_PAIRS = 50;
@@ -318,17 +318,24 @@ async function getAvailableGeminiEndpoints(apiKey) {
     if (res.ok) {
       const data = await res.json();
       const models = (data.models || []).filter(
-        (m) => m.supportedGenerationMethods && m.supportedGenerationMethods.includes('generateContent')
+        (m) =>
+          m.supportedGenerationMethods &&
+          m.supportedGenerationMethods.includes('generateContent') &&
+          !m.name.includes('-tts') &&
+          !m.name.includes('-audio') &&
+          !m.name.includes('embedding')
       );
       if (models.length > 0) {
-        // Prioritize flash models
+        // Prioritize gemini-3.8-flash first, then general flash models
         models.sort((a, b) => {
+          if (a.name.includes('3.8-flash')) return -1;
+          if (b.name.includes('3.8-flash')) return 1;
           const aFlash = a.name.includes('flash') ? -1 : 1;
           const bFlash = b.name.includes('flash') ? -1 : 1;
           return aFlash - bFlash;
         });
 
-        console.log(`Discovered ${models.length} active models:`, models.map((m) => m.name).join(', '));
+        console.log(`Discovered ${models.length} active text models:`, models.map((m) => m.name).join(', '));
         discoveredModelEndpoints = models.map(
           (m) => `https://generativelanguage.googleapis.com/v1beta/${m.name}:generateContent`
         );
