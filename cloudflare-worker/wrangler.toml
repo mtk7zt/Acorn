@@ -7,7 +7,7 @@ compatibility_flags = ["nodejs_compat"]
 # then paste the id below
 [[kv_namespaces]]
 binding = "CHAT_HISTORY"
-id = "REPLACE_WITH_YOUR_KV_ID"
+id = "ed6edf9b53cf4d868b207e28bea8b6fb"
 
 # Secrets (set via CLI or Terraform):
 #   npx wrangler secret put TELEGRAM_BOT_TOKEN
