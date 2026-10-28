@@ -12,8 +12,14 @@
 
 const REPO = 'mtk7zt/Acorn';
 const GITHUB_API = 'https://api.github.com';
-const GEMINI_API =
-  'https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent';
+const CANDIDATE_GEMINI_ENDPOINTS = [
+  'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent',
+  'https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-latest:generateContent',
+  'https://generativelanguage.googleapis.com/v1/models/gemini-1.5-flash:generateContent',
+  'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent',
+  'https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent',
+];
+let activeGeminiEndpoint = null;
 const MAX_HISTORY_PAIRS = 50;
 const ROLE_NAME_REGEX = /^[a-zA-Z0-9\s\+\#\.\,\-\/\(\)]{3,50}$/;
 
@@ -308,21 +314,44 @@ async function callGemini(history, newMessage, systemPrompt, env) {
     },
   };
 
-  const res = await fetch(`${GEMINI_API}?key=${env.GEMINI_API_KEY}`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
-  });
+  const endpointsToTry = activeGeminiEndpoint
+    ? [activeGeminiEndpoint, ...CANDIDATE_GEMINI_ENDPOINTS.filter((u) => u !== activeGeminiEndpoint)]
+    : CANDIDATE_GEMINI_ENDPOINTS;
 
-  if (!res.ok) {
-    const errText = await res.text();
-    throw new Error(`Gemini API HTTP ${res.status}: ${errText.slice(0, 200)}`);
+  let lastError = null;
+  for (const endpoint of endpointsToTry) {
+    try {
+      const res = await fetch(`${endpoint}?key=${env.GEMINI_API_KEY}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+
+      if (res.status === 404) {
+        console.warn(`Gemini endpoint ${endpoint} returned 404. Trying next model candidate...`);
+        lastError = new Error(`HTTP 404 for ${endpoint}`);
+        continue;
+      }
+
+      if (!res.ok) {
+        const errText = await res.text();
+        throw new Error(`Gemini API HTTP ${res.status}: ${errText.slice(0, 200)}`);
+      }
+
+      const data = await res.json();
+      const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
+      if (!text) throw new Error('Empty candidate response from Gemini API.');
+
+      activeGeminiEndpoint = endpoint;
+      return text;
+    } catch (err) {
+      lastError = err;
+      if (err.message?.includes('HTTP 404')) continue;
+      throw err;
+    }
   }
 
-  const data = await res.json();
-  const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
-  if (!text) throw new Error('Empty candidate response from Gemini API.');
-  return text;
+  throw lastError || new Error('All candidate Gemini model endpoints returned 404.');
 }
 
 function parseGeminiResponse(raw) {
