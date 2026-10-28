@@ -13,11 +13,11 @@
 const REPO = 'mtk7zt/Acorn';
 const GITHUB_API = 'https://api.github.com';
 const CANDIDATE_GEMINI_ENDPOINTS = [
+  'https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-latest:generateContent',
+  'https://generativelanguage.googleapis.com/v1beta/models/gemini-3.7-flash:generateContent',
+  'https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent',
   'https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:generateContent',
-  'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent',
-  'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent',
-  'https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-latest:generateContent',
-  'https://generativelanguage.googleapis.com/v1/models/gemini-1.5-flash:generateContent',
+  'https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-lite-latest:generateContent',
 ];
 let activeGeminiEndpoint = null;
 const MAX_HISTORY_PAIRS = 50;
@@ -323,20 +323,29 @@ async function getAvailableGeminiEndpoints(apiKey) {
           m.supportedGenerationMethods.includes('generateContent') &&
           !m.name.includes('-tts') &&
           !m.name.includes('-audio') &&
-          !m.name.includes('embedding')
+          !m.name.includes('embedding') &&
+          !m.name.includes('2.5-flash') &&
+          !m.name.includes('image')
       );
       if (models.length > 0) {
-        // Prioritize gemini-3.8-flash first, then general flash models
+        // Prioritize stable alias and modern high-availability flash models
         models.sort((a, b) => {
-          if (a.name.includes('3.8-flash')) return -1;
-          if (b.name.includes('3.8-flash')) return 1;
-          const aFlash = a.name.includes('flash') ? -1 : 1;
-          const bFlash = b.name.includes('flash') ? -1 : 1;
-          return aFlash - bFlash;
+          const rank = (name) => {
+            if (name.includes('flash-latest')) return 1;
+            if (name.includes('3.7-flash')) return 2;
+            if (name.includes('3.5-flash')) return 3;
+            if (name.includes('3.8-flash')) return 4;
+            if (name.includes('flash-lite-latest')) return 5;
+            if (name.includes('flash')) return 6;
+            return 10;
+          };
+          return rank(a.name) - rank(b.name);
         });
 
-        console.log(`Discovered ${models.length} active text models:`, models.map((m) => m.name).join(', '));
-        discoveredModelEndpoints = models.map(
+        // Retain top 4 responsive candidate models to guarantee fast response
+        const topModels = models.slice(0, 4);
+        console.log(`Ranked responsive text models:`, topModels.map((m) => m.name).join(', '));
+        discoveredModelEndpoints = topModels.map(
           (m) => `https://generativelanguage.googleapis.com/v1beta/${m.name}:generateContent`
         );
         return discoveredModelEndpoints;
@@ -365,7 +374,10 @@ async function callGemini(history, newMessage, systemPrompt, env) {
     },
   };
 
-  const endpointsToTry = await getAvailableGeminiEndpoints(apiKey);
+  const discovered = await getAvailableGeminiEndpoints(apiKey);
+  const endpointsToTry = activeGeminiEndpoint
+    ? [activeGeminiEndpoint, ...discovered.filter((u) => u !== activeGeminiEndpoint)]
+    : discovered;
 
   let lastError = null;
   for (const endpoint of endpointsToTry) {
@@ -377,12 +389,13 @@ async function callGemini(history, newMessage, systemPrompt, env) {
           'x-goog-api-key': apiKey,
         },
         body: JSON.stringify(body),
+        signal: AbortSignal.timeout(6000), // Prevent Cloudflare Worker waitUntil expiration
       });
 
       if (!res.ok) {
         const errText = await res.text();
-        console.warn(`Gemini endpoint ${endpoint} returned HTTP ${res.status}: ${errText.slice(0, 300)}`);
-        lastError = new Error(`HTTP ${res.status} for ${endpoint}: ${errText.slice(0, 200)}`);
+        console.warn(`Gemini endpoint ${endpoint} returned HTTP ${res.status}: ${errText.slice(0, 250)}`);
+        lastError = new Error(`HTTP ${res.status} for ${endpoint}: ${errText.slice(0, 150)}`);
         continue;
       }
 
@@ -390,10 +403,11 @@ async function callGemini(history, newMessage, systemPrompt, env) {
       const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
       if (!text) throw new Error('Empty candidate response from Gemini API.');
 
+      activeGeminiEndpoint = endpoint;
       return text;
     } catch (err) {
       lastError = err;
-      if (err.message?.includes('HTTP')) continue;
+      if (err.message?.includes('HTTP') || err.name === 'TimeoutError' || err.message?.includes('aborted')) continue;
       throw err;
     }
   }
