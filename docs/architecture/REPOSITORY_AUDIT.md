@@ -1,7 +1,7 @@
 # Acorn Core — Phase 0 Repository Audit
 **Document Version:** 1.0.0  
 **Audit Date:** October 28, 2026  
-**Auditor:** Antigravity Principal Architecture Engine  
+**Auditor:** Sosa Emokpae  
 **Target Repository:** `mtk7zt/Acorn`  
 **Specification Reference:** ACORN CORE: Production Engineering Implementation Specification (v2.0)  
 
