@@ -5,7 +5,7 @@
 **Affiliation:** Department of Software Engineering & Advanced Computing Systems  
 **Publication Date:** October 2026  
 **Document Identifier:** ACORN-ARCH-SPEC-2026-V2  
-**Referencing Standard:** Harvard Formatting System (*Cite Them Right* Standard)
+
 
 ---
 
@@ -444,7 +444,7 @@ Let:
 
 ---
 
-### 8. Harvard Reference List
+### 8. Reference List
 
 * Bernstein, P. A. and Goodman, N. (1981) 'Concurrency Control in Distributed Database Systems', *ACM Computing Surveys*, 13(2), pp. 185–221. doi: 10.1145/356842.356846.
 * Brown, S. (2022) *Software Architecture for Developers: Volume 2: Visualise, document and explore your software architecture*. Leanpub.
