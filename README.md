@@ -1,4 +1,4 @@
-# 🌰 Acorn: AI Autonomous Job Tracker Engine
+# 🌰 Acorn AI
 
 [![CI/CD Job Tracker](https://github.com/mtk7zt/Acorn/actions/workflows/job_tracker.yml/badge.svg)](https://github.com/mtk7zt/Acorn/actions/workflows/job_tracker.yml)
 [![Python Version](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
@@ -7,184 +7,302 @@
 [![Architecture](https://img.shields.io/badge/architecture-clean%20%2F%20DDD-green.svg)](docs/PROJECTED_ARCHITECTURE_SPECIFICATION.md)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-> **Acorn** is an **AI Autonomous Job Tracker Engine** engineered specifically for the Canadian technology sector. It pairs an autonomous distributed multi-board scraping pipeline with an always-on Cloudflare Worker edge AI assistant powered by Google Gemini.
+> **Be first to what matters.**
+
+Acorn is a Canadian-first career intelligence engine that keeps watch for relevant
+tech opportunities, filters noise, prioritizes timing, and brings worthwhile roles
+to the user instead of asking the user to spend the day refreshing job boards.
+
+The current founder preview runs through a private Telegram experience backed by a
+Python discovery pipeline, GitHub Actions, a Cloudflare Worker, and Gemini-assisted
+natural-language controls.
+
+Acorn is evolving around two product primitives:
+
+- **Acorn Signal** — one qualified opportunity with a clear, evidence-based reason
+  it deserves attention.
+- **Acorn Briefing** — a small, curated set of Signals delivered when something is
+  actually worth the user's time.
+
+Acorn itself is a living acorn and personal career scout. Its mini-acorn **Scouts**
+represent the background search system across the product experience.
 
 ---
 
-## 📑 Architectural Documentation & Academic Publications
+## Product status
 
-This repository adheres to the **ISO/IEC/IEEE 42010:2022** architectural description standards and follows formal Harvard-style referencing:
+**Current:** private founder prototype / active Telegram implementation.
 
-* 📄 **[Baseline Architecture Specification (`docs/CURRENT_SYSTEM_SPECIFICATION.md`)](docs/CURRENT_SYSTEM_SPECIFICATION.md)**: Master's-level baseline report analyzing the initial prototype, technical debt, procedural anti-patterns, and STRIDE security audit.
-* 📄 **[Target Architecture & Engineering Specification (`docs/PROJECTED_ARCHITECTURE_SPECIFICATION.md`)](docs/PROJECTED_ARCHITECTURE_SPECIFICATION.md)**: Publication-grade systems design paper detailing the Domain-Driven Design (DDD) model, SOLID principles realization, Gang of Four (GoF) patterns, DREAD risk mitigations, and formal algorithmic complexity proofs.
-* 🛠️ **[Deployment & Cloudflare Worker Guide (`AI_INTEGRATION_GUIDE.md`)](AI_INTEGRATION_GUIDE.md)**: Operational guide for provisioning Workers KV, configuring secrets, and binding Telegram webhooks.
+The repository currently implements:
+
+- Scheduled and manually triggered job-discovery runs
+- Configurable role tracking
+- Canadian/GTA-first geographic filtering
+- Freshness and applicant-evidence ranking
+- Repost/saturation suppression
+- Canonical source-ID + fingerprint deduplication
+- Telegram job alerts and controls
+- Natural-language role/settings actions through the edge assistant
+- PII-redacted ATS resume mode
+- User-triggered conversation-memory deletion
+
+The following are product directions and are not represented as generally available
+features yet:
+
+- Acorn Signal and Acorn Briefing UI
+- Public web product
+- Native mobile app
+- WhatsApp integration
+- Instagram DM integration
+- iOS/iMessage extension
+- Multi-user accounts and per-user persistent state
 
 ---
 
-## 🏛️ System Architecture
+## Product principles
 
-Acorn solves the fundamental trade-off between **high-throughput background scraping** and **low-latency real-time conversational messaging** by bifurcating responsibilities into two distinct, asynchronous runtimes:
+### Attention over volume
 
+Acorn should surface fewer, better opportunities rather than becoming another
+infinite job feed.
+
+### Timing with provenance
+
+Freshness, applicant counts, source evidence, and relevance are separate signals.
+Acorn must never present an inferred applicant count as a reported fact.
+
+### Canada first
+
+The current prototype prioritizes the Greater Toronto Area and Canada-wide remote
+roles. Geographic coverage can expand without changing the core model.
+
+### Privacy by design
+
+Resume analysis is designed to redact common identifiers in memory before matching.
+Privacy claims must remain scoped to the paths that actually provide those controls.
+
+### Evidence over invention
+
+Acorn must never fabricate candidate achievements, experience, credentials, or
+resume metrics. Suggested resume language must preserve user-provided evidence.
+
+---
+
+## Features
+
+| Capability | Founder-preview requirement | Longer-term |
+| --- | --- | --- |
+| Canadian opportunity qualification | Must | Expand regional coverage |
+| Role filtering | Must | Personalized goal model |
+| Signal prioritization | Must | Learned preference ranking |
+| Canonical deduplication | Must | Richer cross-source entity resolution |
+| Acorn Signal | Must | Personalized signal scoring |
+| Acorn Briefing | Must | Adaptive briefing cadence |
+| Telegram | Must | Richer Web App experience |
+| Privacy controls | Must | Full account data controls |
+| Living Acorn mascot | Must | Cross-platform Rive/native state machine |
+| Mini-acorn Scouts | Must | Event-driven animations across app surfaces |
+| Native app | Nice to have / planned | iOS + Android |
+| WhatsApp | Planned | Subject to platform requirements |
+| Instagram DM | Planned | Subject to platform requirements |
+| iMessage | Planned | iOS app + Messages extension |
+
+---
+
+## Current architecture
+
+```mermaid
+flowchart LR
+    A[Configured job sources] --> B[Python source adapters]
+    B --> C[Role filtering]
+    C --> D[Canadian geofence]
+    D --> E[Freshness / applicant evidence]
+    E --> F[Canonical deduplication]
+    F --> G[Priority sort]
+    G --> H[Telegram alerts]
+
+    I[GitHub Actions] --> B
+    J[Telegram user] --> K[Cloudflare Worker]
+    K --> L[Gemini conversation layer]
+    K --> M[Workers KV]
+    K --> N[GitHub configuration / workflow actions]
+    N --> I
 ```
-                          Telegram User (Job Seeker)
-                                      │
-            ┌─────────────────────────┴─────────────────────────┐
-            │ (Real-Time Inquiries & Remote Pipeline Controls)  │ (Real-Time Push Alerts)
-            ▼                                                   ▲
- ┌──────────────────────────────┐                ┌──────────────────────────────┐
- │  Cloudflare Worker (Edge)    │                │  GitHub Actions (Batch VM)   │
- │                              │                │                              │
- │  • Sub-5s response latency   │                │  • Scheduled 10-minute cron  │
- │  • Google Gemini 1.5 Flash   │                │  • Multi-source scrapers     │
- │  • 50-turn KV chat memory    │                │  • 3-Tier GTA location rank  │
- │  • Optimistic GitHub REST OCC│                │  • Seniority title filters   │
- └──────────────┬───────────────┘                └──────────────▲───────────────┘
-                │                                               │
-                │ Mutates config & dispatches scans             │ Reads state & filters
-                ▼                                               │
-        ┌───────────────────────────────────────────────────────────────┐
-        │               GitHub Git Store (mtk7zt/Acorn)                 │
-        │   roles_config.json  •  bot_config.json  •  seen_jobs.json    │
-        └───────────────────────────────────────────────────────────────┘
+
+The current scheduled workflow runs every ten minutes and can also be dispatched manually.
+
+---
+
+## Target product architecture
+
+```mermaid
+flowchart LR
+    PSA["Permitted source adapters"] --> NJL["Normalized JobListing"]
+    NJL --> QE["Qualification engine"]
+    UG["User goals"] --> QE
+    QE --> DEDUP["Deduplication"]
+    DEDUP --> SR["Signal ranker"]
+    SR --> SSEL["Signal store / event layer"]
+    
+    SSEL --> AB["Acorn Briefing"]
+    SSEL --> AR["Alert router"]
+    
+    AB --> CA["Channel adapters"]
+    AR --> CA
+    UG --> CA
+    
+    CA --> T["Telegram"]
+    CA --> W["Web / PWA"]
+    CA --> M["Mobile app"]
+    CA --> WA["WhatsApp"]
+    CA --> IG["Instagram"]
+    CA --> IM["iMessage extension"]
 ```
 
----
-
-## 🌟 Key Capabilities
-
-### 1. 🔍 Multi-Board Real-Time Ingestion
-Harvests fresh postings ($T \le 60\text{ minutes}$) across 5 primary Canadian portals:
-- **LinkedIn Canada:** Direct guest API scraping (`f_TPR=r3600`) with minute-level freshness.
-- **Indeed Canada:** Multi-board scraping with localized Canadian regional parameters.
-- **Job Bank Canada (`jobbank.gc.ca`):** Official Government of Canada portal sorted by newest postings (`sort=D`).
-- **Glassdoor Canada:** National technology job board index.
-- **Google Jobs Canada:** Aggregating Workopolis, Monster.ca, Eluta, and employer applicant tracking systems (ATS).
-
-### 2. 🎯 Geographic Priority Tiers & Seniority Filtering
-- **🔥 Priority 1 (Mississauga / Toronto Core):** Mississauga, Toronto, Etobicoke, North York, Scarborough, East York, York.
-- **📍 Priority 2 (Surrounding Greater Toronto Area):** Brampton, Oakville, Burlington, Milton, Vaughan, Markham, Richmond Hill, Pickering, Ajax, Whitby, Oshawa, Newmarket, Aurora, Hamilton, Halton, Peel, Durham.
-- **🌐 Priority 3 (Remote Canada):** Telework / Remote positions across Canada.
-- **Seniority Exclusion with Junior Override:** Automatically rejects titles containing `Senior`, `Lead`, `Manager`, `Director`, `Principal`, or `Architect` unless explicitly counterbalanced by `Junior`, `Intern`, `Co-op`, `Associate`, or `Entry-level`.
-
-### 3. 🤖 Edge Conversational AI Assistant
-Chat directly with the bot on Telegram with near-instant response times ($<3\text{ seconds}$):
-- **Conversational Memory:** Retains the last 50 conversational turns using Cloudflare Workers KV.
-- **Pipeline Governance:** Instruct the bot in plain English to add roles, remove roles, trigger instant scans, pause the scheduler, or update freshness thresholds.
-- **Dual Personality:** Toggle between `professional` (concise, factual) and `encouraging` (supportive, motivational job search coach).
+> Production identity, primary database, billing, infrastructure, and final job-source API strategy remain open architectural decisions.
 
 ---
 
-## 💬 Sample Telegram Interactions
+## Repository map
 
-```
-You: "What roles am I currently tracking?"
-Acorn: 📋 You are currently tracking 13 roles:
-       1. Junior Software Engineer
-       2. Software Engineer Intern
-       3. IT Support
-       ...
-       Would you like to add or remove any designations?
-
-You: "Add Junior DevOps Engineer and Cloud Analyst"
-Acorn: ✅ Added 2 new roles to tracking:
-       • Junior DevOps Engineer
-       • Cloud Analyst
-       Updated total: 15 active roles.
-
-You: "Run a job scan right now"
-Acorn: 🔄 Job scan triggered on GitHub Actions! Check back in ~60 seconds for fresh alert notifications.
-
-You: "Switch to encouraging mode"
-Acorn: 🌟 Personality set to ENCOURAGING! You're doing amazing in your job search, let's land that dream role! 🚀
+```text
+.
+├── job_tracker_bot.py
+├── cloudflare-worker/
+│   ├── index.js
+│   ├── package.json
+│   └── wrangler.toml
+├── src/acorn/
+│   ├── application/
+│   ├── domain/
+│   ├── infrastructure/
+│   │   ├── notifiers/
+│   │   ├── scrapers/
+│   │   └── storage/
+│   └── interfaces/
+├── tests/
+├── .github/
+│   ├── workflows/
+│   └── ISSUE_TEMPLATE/
+├── terraform/
+├── docs/
+├── roles_config.json
+├── bot_config.json
+├── seen_jobs.json
+└── web/
 ```
 
----
+### Key implementation locations:
 
-## 🚀 Quick Start & Installation
-
-### Local Development Setup
-
-1. **Clone the repository:**
-   ```bash
-   git clone https://github.com/mtk7zt/Acorn.git
-   cd Acorn
-   ```
-
-2. **Set up virtual environment & install dependencies:**
-   ```bash
-   python -m venv venv
-   source venv/bin/activate  # On Windows: venv\Scripts\activate
-   pip install -r requirements.txt
-   ```
-
-3. **Execute dry-run pipeline test:**
-   ```bash
-   python job_tracker_bot.py --dry-run
-   ```
+- `src/acorn/application/pipeline.py` — discovery pipeline orchestration
+- `src/acorn/domain/models.py` — domain models and canonical fingerprints
+- `src/acorn/domain/velocity.py` — current freshness/applicant ranking
+- `src/acorn/domain/geofence.py` — Canadian geographic qualification
+- `src/acorn/domain/security.py` — PII redaction and resume matching
+- `src/acorn/infrastructure/scrapers/` — job-source adapters
+- `src/acorn/infrastructure/notifiers/telegram.py` — Telegram job alerts
+- `cloudflare-worker/index.js` — Telegram webhook, Gemini controls, memory, ATS flow
+- `.github/workflows/job_tracker.yml` — scheduled/on-demand pipeline execution
 
 ---
 
-## ⚙️ Configuration & Secrets
+## Local development
 
-### 1. GitHub Actions Secrets
-In your GitHub repository, navigate to **Settings → Secrets and variables → Actions** and add:
+### Requirements
 
-| Secret Name | Description | Source |
-|:---|:---|:---|
-| `TELEGRAM_BOT_TOKEN` | Bot authentication token | Telegram `@BotFather` |
-| `TELEGRAM_CHAT_ID` | Your authorized Telegram chat ID | Telegram `@userinfobot` |
+- Python 3.11+
+- Git
+- Node.js/npm for the Cloudflare Worker
+- Optional: Wrangler CLI / Cloudflare account for edge deployment
 
-### 2. Cloudflare Worker Secrets
-Navigate to `cloudflare-worker/` and bind production secrets:
+### Setup
+
+```bash
+git clone https://github.com/mtk7zt/Acorn.git
+cd Acorn
+
+python -m venv .venv
+
+# macOS/Linux
+source .venv/bin/activate
+
+# Windows PowerShell
+# .\.venv\Scripts\Activate.ps1
+
+pip install -r requirements.txt
+python -m pytest tests/ -v
+```
+
+### Safe local discovery test
+
+A dry run executes harvesting/filtering without transmitting Telegram alerts:
+
+```bash
+python job_tracker_bot.py --dry-run
+```
+
+### Telegram connectivity test
+
+Set credentials in your shell or secure secret manager:
+
+```bash
+export TELEGRAM_BOT_TOKEN="..."
+export TELEGRAM_CHAT_ID="..."
+python job_tracker_bot.py --test-telegram
+```
+
+*Never commit credentials.*
+
+---
+
+## GitHub Actions
+
+The scheduled job tracker uses repository secrets:
+
+```text
+TELEGRAM_BOT_TOKEN
+TELEGRAM_CHAT_ID
+```
+
+The workflow can also be manually dispatched.
+
+For a future multi-user product, repository JSON files should be treated as prototype state rather than the long-term user database.
+
+---
+
+## Cloudflare Worker
+
+The Telegram conversational assistant currently expects secrets such as:
+
+```text
+TELEGRAM_BOT_TOKEN
+TELEGRAM_SECRET_TOKEN
+GEMINI_API_KEY
+GITHUB_PAT
+ALLOWED_CHAT_IDS
+```
+
+A Workers KV binding is used for conversational state.
+
+### Typical deployment flow:
 
 ```bash
 cd cloudflare-worker
+npm install
+npx wrangler login
+
+# Configure the KV binding in wrangler.toml.
+# Add secrets using Wrangler rather than committing them.
+
 npx wrangler secret put TELEGRAM_BOT_TOKEN
-npx wrangler secret put TELEGRAM_SECRET_TOKEN   # Random secret string
-npx wrangler secret put GEMINI_API_KEY          # From https://aistudio.google.com/app/apikey
-npx wrangler secret put GITHUB_PAT              # GitHub PAT (Contents: Read/Write, Actions: Read/Write)
-npx wrangler secret put ALLOWED_CHAT_ID         # Your Telegram chat ID (Enforces zero-trust auth)
+npx wrangler secret put TELEGRAM_SECRET_TOKEN
+npx wrangler secret put GEMINI_API_KEY
+npx wrangler secret put GITHUB_PAT
+npx wrangler secret put ALLOWED_CHAT_IDS
+
+npx wrangler deploy
 ```
 
----
+After deployment, configure the Telegram webhook using the repository's webhook setup utility and the deployed Worker URL.
 
-## 🏗️ Infrastructure as Code (Terraform)
-
-Deploy the Cloudflare Worker and KV storage declaratively using HashiCorp Terraform:
-
-```bash
-cd terraform
-cp terraform.tfvars.example terraform.tfvars
-# Populate terraform.tfvars with your Cloudflare API token and Account ID
-
-terraform init
-terraform plan
-terraform apply
-```
-
----
-
-## 🔒 Security & Vulnerability Policy
-
-Acorn implements defense-in-depth security principles:
-* **Strict Sender Authorization (`ALLOWED_CHAT_ID`):** Webhook drops any interaction not originating from the verified repository owner.
-* **Fail-Closed Secret Validation:** Rejects requests lacking the cryptographic `X-Telegram-Bot-Api-Secret-Token` header.
-* **Deterministic HTML Sanitization:** All incoming job metadata is escaped before injection into Telegram HTML DOM formatting, eliminating formatting truncation and XSS risks.
-* **Optimistic Concurrency Control:** GitHub API commits utilize SHA verification with exponential backoff to prevent race condition write corruption.
-
----
-
-## 📄 License
-
-This project is licensed under the terms of the **MIT License**. See the [LICENSE](LICENSE) file for complete details.
-
----
-
-## 📚 Academic Citation
-
-If utilizing this software architecture or system specification in academic research or technical reporting, please cite conforming to the Harvard referencing standard:
-
-```text
-Emokpae, S. (2026) Acorn: Multi-Board Canadian Job Tracker and Edge Conversational Assistant. 
-[Source code]. Available at: https://github.com/mtk7zt/Acorn (Accessed: 27 October 2026).
-```
+See `AI_INTEGRATION_GUIDE.md` for the existing integration notes.
