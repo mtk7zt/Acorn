@@ -223,37 +223,58 @@ function answerCallback(callbackQueryId, text, env) {
 // ─────────────────────────────────────────────────────────────────────────────
 
 async function ghGet(path, env) {
-  const res = await fetch(`${GITHUB_API}/repos/${REPO}/contents/${path}`, {
+  let resolvedPath = path;
+  let res = await fetch(`${GITHUB_API}/repos/${REPO}/contents/${resolvedPath}`, {
     headers: {
       Authorization: `token ${env.GITHUB_PAT}`,
       Accept: 'application/vnd.github.v3+json',
       'User-Agent': 'Acorn-Edge-Worker/2.0',
     },
   });
-  if (!res.ok) throw new Error(`GitHub GET ${path} HTTP ${res.status}`);
+
+  // Backward-compatible fallback for runtime files relocated in BETA-02
+  if (!res.ok && res.status === 404 && !path.startsWith('data/')) {
+    const fallbackPath = path === 'seen_jobs.json'
+      ? `data/runtime/ingestion/${path}`
+      : `data/runtime/config/${path}`;
+    const fallbackRes = await fetch(`${GITHUB_API}/repos/${REPO}/contents/${fallbackPath}`, {
+      headers: {
+        Authorization: `token ${env.GITHUB_PAT}`,
+        Accept: 'application/vnd.github.v3+json',
+        'User-Agent': 'Acorn-Edge-Worker/2.0',
+      },
+    });
+    if (fallbackRes.ok) {
+      res = fallbackRes;
+      resolvedPath = fallbackPath;
+    }
+  }
+
+  if (!res.ok) throw new Error(`GitHub GET ${resolvedPath} HTTP ${res.status}`);
   const data = await res.json();
   const decoded = atob(data.content.replace(/\s/g, ''));
   const bytes = new Uint8Array(decoded.length);
   for (let i = 0; i < decoded.length; i++) bytes[i] = decoded.charCodeAt(i);
   const text = new TextDecoder().decode(bytes);
-  return { content: JSON.parse(text), sha: data.sha };
+  return { content: JSON.parse(text), sha: data.sha, path: resolvedPath };
 }
 
 async function ghPutWithRetry(path, mutateFn, message, env, maxRetries = 3) {
   let attempt = 0;
   while (attempt < maxRetries) {
     attempt++;
-    const { content, sha } = await ghGet(path, env);
+    const { content, sha, path: resolvedPath } = await ghGet(path, env);
     const updatedContent = mutateFn(content);
     if (!updatedContent) return;
 
+    const actualPath = resolvedPath || path;
     const json = JSON.stringify(updatedContent, null, 2);
     const bytes = new TextEncoder().encode(json);
     let binary = '';
     bytes.forEach((b) => (binary += String.fromCharCode(b)));
     const encoded = btoa(binary);
 
-    const res = await fetch(`${GITHUB_API}/repos/${REPO}/contents/${path}`, {
+    const res = await fetch(`${GITHUB_API}/repos/${REPO}/contents/${actualPath}`, {
       method: 'PUT',
       headers: {
         Authorization: `token ${env.GITHUB_PAT}`,
@@ -265,14 +286,14 @@ async function ghPutWithRetry(path, mutateFn, message, env, maxRetries = 3) {
     });
 
     if (res.status === 409) {
-      console.warn(`GitHub PUT 409 SHA conflict on ${path}. Retrying attempt ${attempt}...`);
+      console.warn(`GitHub PUT 409 SHA conflict on ${actualPath}. Retrying attempt ${attempt}...`);
       await new Promise((resolve) => setTimeout(resolve, Math.random() * 200 + 100));
       continue;
     }
 
     if (!res.ok) {
       const err = await res.json().catch(() => ({}));
-      throw new Error(`GitHub PUT ${path} HTTP ${res.status}: ${JSON.stringify(err)}`);
+      throw new Error(`GitHub PUT ${actualPath} HTTP ${res.status}: ${JSON.stringify(err)}`);
     }
 
     return res.json();

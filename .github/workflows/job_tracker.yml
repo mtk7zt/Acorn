@@ -84,6 +84,6 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add data/runtime/ingestion/seen_jobs.json data/runtime/config/roles_config.json data/runtime/config/bot_config.json seen_jobs.json roles_config.json bot_config.json
+          git add -A data/runtime/
           git diff --staged --quiet || git commit -m "chore: update job tracker state [skip ci]"
           git push
