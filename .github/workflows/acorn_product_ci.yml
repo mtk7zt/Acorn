@@ -1,0 +1,132 @@
+name: Acorn Product CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - dev
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: acorn-ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  changes:
+    name: Detect Component Changes
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      web: ${{ steps.filter.outputs.web }}
+      backend: ${{ steps.filter.outputs.backend }}
+      edge: ${{ steps.filter.outputs.edge }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: Detect modified paths
+        uses: dorny/paths-filter@de90cc6fb38fc0963ad72b210f1f284cd68cea36 # v3.0.2
+        id: filter
+        with:
+          filters: |
+            web:
+              - 'web/**'
+              - 'apps/web/**'
+              - '.github/workflows/acorn_product_ci.yml'
+            backend:
+              - 'src/**'
+              - 'tests/**'
+              - 'job_tracker_bot.py'
+              - 'requirements.txt'
+              - 'pytest.ini'
+              - '.github/workflows/acorn_product_ci.yml'
+            edge:
+              - 'cloudflare-worker/**'
+              - 'terraform/**'
+              - 'migrations/**'
+              - '.github/workflows/acorn_product_ci.yml'
+
+  web-check:
+    name: Web TypeScript & Production Build
+    needs: changes
+    if: needs.changes.outputs.web == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: Setup Node.js 22
+        uses: actions/setup-node@39370e3970a6d050c480ffad4ff0ed4d3fdee5af # v4.1.0
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: apps/web/package-lock.json
+
+      - name: Install locked dependencies
+        working-directory: apps/web
+        run: npm ci
+
+      - name: Typecheck & build production bundle
+        working-directory: apps/web
+        run: npm test && npm run build
+
+      - name: Verify no client secret leakage in dist
+        working-directory: apps/web
+        run: |
+          if grep -R -E "TELEGRAM_BOT_TOKEN|GEMINI_API_KEY|GITHUB_PAT|TELEGRAM_SECRET_TOKEN" dist/; then
+            echo "CRITICAL: Server secret identifier leaked into client bundle!"
+            exit 1
+          fi
+
+      - name: Upload immutable web artifact
+        uses: actions/upload-artifact@b4b15b8c7c6ac21ea08fcf65892d2ee8f75cf882 # v4.4.3
+        with:
+          name: acorn-web-dist-${{ github.sha }}
+          path: apps/web/dist
+          retention-days: 14
+
+  backend-check:
+    name: Python Domain Engine & Security Tests
+    needs: changes
+    if: needs.changes.outputs.backend == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@0b93645e9fea7318ecaed2b359559ac225c90a2b # v5.3.0
+        with:
+          python-version: '3.11'
+          cache: pip
+
+      - name: Install Python dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Execute Pytest Unit & Security Suite
+        env:
+          PYTHONPATH: .
+        run: python -m pytest tests/ -v
+
+  edge-and-iac-check:
+    name: Cloudflare Worker & Migration Validation
+    needs: changes
+    if: needs.changes.outputs.edge == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: Validate wrangler.toml & SQL migrations
+        run: |
+          test -f cloudflare-worker/wrangler.toml
+          test -f terraform/main.tf
+

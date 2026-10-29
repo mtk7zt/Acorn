@@ -58,4 +58,8 @@ Thumbs.db
 *.db
 *.sqlite
 *.sqlite3
-
+# Node & Web App
+node_modules/
+apps/web/node_modules/
+apps/web/dist/
+scratch_inspect/

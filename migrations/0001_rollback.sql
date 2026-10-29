@@ -1,0 +1,10 @@
+DROP INDEX IF EXISTS idx_user_signals_user_status;
+DROP INDEX IF EXISTS idx_access_requests_status;
+DROP INDEX IF EXISTS idx_invitations_token_hash;
+DROP TABLE IF EXISTS audit_logs;
+DROP TABLE IF EXISTS user_signals;
+DROP TABLE IF EXISTS telegram_link_tokens;
+DROP TABLE IF EXISTS invitations;
+DROP TABLE IF EXISTS access_requests;
+DROP TABLE IF EXISTS sessions;
+DROP TABLE IF EXISTS users;

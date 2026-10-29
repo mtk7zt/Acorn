@@ -33,12 +33,21 @@ const CANONICAL_TECH_KEYWORDS = [
   'powershell', 'servicenow', 'jira'
 ];
 
+import { handleAcornApiV1 } from './api_v1_routes.js';
+
 // ─────────────────────────────────────────────────────────────────────────────
 // 1. HTTP GATEWAY & ACCESS CONTROL
 // ─────────────────────────────────────────────────────────────────────────────
 
 export default {
   async fetch(request, env, ctx) {
+    const url = new URL(request.url);
+
+    // Route /api/v1/* requests to the D1-backed REST API router
+    if (url.pathname.startsWith('/api/v1/')) {
+      return handleAcornApiV1(request, env);
+    }
+
     if (request.method !== 'POST') {
       return new Response('🌰 Acorn AI Edge Worker Active (V8 Isolate)', {
         status: 200,
