@@ -34,6 +34,9 @@ const CANONICAL_TECH_KEYWORDS = [
 ];
 
 import { handleAcornApiV1 } from './api_v1_routes.js';
+import { resolveAuthRole, isFounder, AuthRole } from './activation/auth.js';
+import { ActivationService } from './activation/service.js';
+import { FounderAdminController } from './activation/admin.js';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // 1. HTTP GATEWAY & ACCESS CONTROL
@@ -595,52 +598,163 @@ async function handleMessage(message, env) {
   const rawText = message.text || '';
   const textTrim = rawText.trim();
 
-  // Enforce Multi-User Zero-Trust Authorization (Decision 2)
-  if (!isAuthorizedSender(chatId, env)) {
-    console.warn(`Unauthorized access rejected from chatId: ${chatId}`);
-    return;
+  const role = await resolveAuthRole(chatId, env);
+
+  // 1. Founder Administrative Command Dispatcher
+  if (role === AuthRole.FOUNDER && textTrim.startsWith('/')) {
+    const adminCtrl = new FounderAdminController(env, { sendMessage, sendTyping });
+    const handled = await adminCtrl.handleAdminCommand(chatId, textTrim, env);
+    if (handled) return;
   }
 
-  // Visual feedback
-  await sendTyping(chatId, env);
-
-  // Command: /start or /help
+  // 2. Public Command: /start or /help (Adaptive onboarding)
   if (textTrim === '/start' || textTrim === '/help') {
-    const welcomeText = (
-      '🌰 <b>Acorn Job Tracker & Career Intelligence Engine</b>\n\n' +
-      'Always-on edge intelligence for early Canadian tech job discovery and ATS resume tailoring.\n\n' +
-      '<b>⚡ Commands & Capabilities:</b>\n' +
-      '• <code>/scan</code> — Scan all Canadian job boards for your target roles\n' +
-      '• <code>/jd</code> — Upload a JD to get ATS passing statements & extracted skills\n' +
-      '• <code>/ats</code> — Upload your resume to get your ATS score & actionable edits\n' +
-      '• <code>/roles</code> — View currently tracked roles\n' +
-      '• <code>/forget</code> — Wipe your session data from edge KV\n\n' +
-      '<i>Or send any question in natural language to chat with Acorn!</i>'
+    await sendTyping(chatId, env);
+
+    // If already authorized (Founder or Active Tester), present full Acorn control hub
+    if (role === AuthRole.FOUNDER || role === AuthRole.TESTER) {
+      const welcomeText = (
+        '🌰 <b>Acorn Job Tracker & Career Intelligence Engine</b>\n\n' +
+        'Always-on edge intelligence for early Canadian tech job discovery and ATS resume tailoring.\n\n' +
+        '<b>⚡ Commands & Capabilities:</b>\n' +
+        '• <code>/scan</code> — Scan all Canadian job boards for your target roles\n' +
+        '• <code>/jd</code> — Upload a JD to get ATS passing statements & extracted skills\n' +
+        '• <code>/ats</code> — Upload your resume to get your ATS score & actionable edits\n' +
+        '• <code>/roles</code> — View currently tracked roles\n' +
+        '• <code>/forget</code> — Wipe your session data from edge KV\n\n' +
+        '<i>Or send any question in natural language to chat with Acorn!</i>'
+      );
+      await sendMessage(chatId, welcomeText, env, {
+        reply_markup: {
+          inline_keyboard: [
+            [
+              { text: '🔍 Scan All Target Roles', callback_data: 'scan_roles' },
+            ],
+            [
+              { text: '📋 Breakdown JD (ATS Statements & Skills)', callback_data: 'jd_prompt' },
+            ],
+            [
+              { text: '📄 Scan Resume for ATS Score & Edits', callback_data: 'ats_prompt' },
+            ],
+            [
+              { text: '📋 View Roles', callback_data: 'list_roles' },
+              { text: '➕ Add Role', callback_data: 'add_role_prompt' },
+            ],
+            [
+              { text: '🗑️ Wipe Data', callback_data: 'wipe_prompt' },
+            ],
+          ],
+        },
+      });
+      return;
+    }
+
+    // Unauthorized or Revoked: Present Warm Public Onboarding Flow (Stage BETA-01)
+    if (role === AuthRole.REVOKED) {
+      await sendMessage(
+        chatId,
+        '⚠️ <b>Access Deactivated:</b> Your beta tester access has been revoked. Contact Acorn support for assistance.\n\n<i>You may still use /forget to purge your conversation data.</i>',
+        env
+      );
+      return;
+    }
+
+    const publicWelcome = (
+      '🌰 <b>Welcome to Acorn!</b>\n\n' +
+      'Your personal career scout is currently welcoming a small group of early testers.\n\n' +
+      'Have an activation key? You can use it to unlock Acorn.'
     );
-    await sendMessage(chatId, welcomeText, env, {
+    await sendMessage(chatId, publicWelcome, env, {
       reply_markup: {
         inline_keyboard: [
           [
-            { text: '🔍 Scan All Target Roles', callback_data: 'scan_roles' },
-          ],
-          [
-            { text: '📋 Breakdown JD (ATS Statements & Skills)', callback_data: 'jd_prompt' },
-          ],
-          [
-            { text: '📄 Scan Resume for ATS Score & Edits', callback_data: 'ats_prompt' },
-          ],
-          [
-            { text: '📋 View Roles', callback_data: 'list_roles' },
-            { text: '➕ Add Role', callback_data: 'add_role_prompt' },
-          ],
-          [
-            { text: '🗑️ Wipe Data', callback_data: 'wipe_prompt' },
+            { text: '🌱 Activate Acorn', callback_data: 'activate_prompt' },
+            { text: '🌰 About Acorn', callback_data: 'about_acorn' },
           ],
         ],
       },
     });
     return;
   }
+
+  // 3. Public Command: /activate or Key Input Flow
+  const awaitingActivation = await env.CHAT_HISTORY.get(`awaiting_activation:${chatId}`);
+  const isDirectActivationCmd = textTrim.startsWith('/activate');
+
+  if (isDirectActivationCmd || awaitingActivation === 'true') {
+    await env.CHAT_HISTORY.delete(`awaiting_activation:${chatId}`);
+    const keyCandidate = isDirectActivationCmd
+      ? textTrim.replace('/activate', '').trim()
+      : textTrim;
+
+    if (!keyCandidate) {
+      await env.CHAT_HISTORY.put(`awaiting_activation:${chatId}`, 'true', { expirationTtl: 300 });
+      await sendMessage(
+        chatId,
+        '🔑 <b>Acorn Beta Activation:</b>\n\nPlease send your activation key in this private chat:\n(Format: <code>ACRN-BETA-...</code>)',
+        env
+      );
+      return;
+    }
+
+    await sendTyping(chatId, env);
+    const service = new ActivationService(env);
+    const redeemRes = await service.redeemKey(keyCandidate, chatId);
+
+    if (redeemRes.success) {
+      const successMsg = (
+        '🌱 <b>You\'re in!</b>\n\n' +
+        'Acorn is now active for you.\n\n' +
+        'Your personal career scout is ready to help you discover opportunities worth your attention.'
+      );
+      await sendMessage(chatId, successMsg, env, {
+        reply_markup: {
+          inline_keyboard: [
+            [{ text: '🔍 Scan Target Roles', callback_data: 'scan_roles' }],
+            [{ text: '📋 Breakdown Job Description (JD)', callback_data: 'jd_prompt' }],
+            [{ text: '📄 Scan Resume for ATS Score', callback_data: 'ats_prompt' }],
+          ],
+        },
+      });
+      return;
+    }
+
+    const errorMsg = 'That activation key couldn\'t be accepted. Check the key and try again, or request another invitation.';
+    await sendMessage(chatId, errorMsg, env);
+    return;
+  }
+
+  // 4. Data Sovereignty (/forget) remains public for all users
+  if (textTrim === '/forget' || textTrim.toLowerCase() === 'wipe my data') {
+    await wipeUserData(chatId, env);
+    await sendMessage(
+      chatId,
+      '🗑️ <b>Data Sovereignty Confirmed:</b> All conversation turns and cached resume data have been wiped from edge memory.',
+      env
+    );
+    return;
+  }
+
+  // 5. Gate all remaining protected commands and conversational AI
+  if (role !== AuthRole.FOUNDER && role !== AuthRole.TESTER) {
+    console.warn(`Protected feature access denied for unauthorized user: ${chatId}`);
+    const deniedText = (
+      '🌰 <b>Acorn Beta Access Required</b>\n\n' +
+      'This feature is reserved for active beta testers.\n' +
+      'Please tap <b>🌱 Activate Acorn</b> below and enter your key.'
+    );
+    await sendMessage(chatId, deniedText, env, {
+      reply_markup: {
+        inline_keyboard: [
+          [{ text: '🌱 Activate Acorn', callback_data: 'activate_prompt' }],
+        ],
+      },
+    });
+    return;
+  }
+
+  // Visual feedback
+  await sendTyping(chatId, env);
 
   // Command: /roles
   if (textTrim === '/roles') {
@@ -810,9 +924,76 @@ async function handleCallbackQuery(callbackQuery, env) {
   const chatId = callbackQuery.message?.chat?.id;
   const data = callbackQuery.data;
 
-  if (!isAuthorizedSender(chatId, env)) return;
+  const role = await resolveAuthRole(chatId, env);
 
   await answerCallback(callbackQuery.id, '', env);
+
+  // 1. Public Callbacks
+  if (data === 'activate_prompt') {
+    await env.CHAT_HISTORY.put(`awaiting_activation:${chatId}`, 'true', { expirationTtl: 300 });
+    await sendMessage(
+      chatId,
+      '🔑 <b>Acorn Beta Activation:</b>\n\nPlease text your activation key into this private chat:\n(Format: <code>ACRN-BETA-...</code>)',
+      env
+    );
+    return;
+  }
+
+  if (data === 'about_acorn') {
+    const aboutMsg = (
+      '🌰 <b>About Acorn AI</b>\n\n' +
+      'Acorn is your personal Canadian career scout. Instead of spending your day refreshing job boards, ' +
+      'Acorn keeps watch in the background, qualifies roles across the Greater Toronto Area & Canada Remote, ' +
+      'and brings worthwhile opportunities directly to you with first-mover velocity.'
+    );
+    await sendMessage(chatId, aboutMsg, env, {
+      reply_markup: {
+        inline_keyboard: [
+          [{ text: '🌱 Activate Acorn', callback_data: 'activate_prompt' }],
+        ],
+      },
+    });
+    return;
+  }
+
+  // 2. Founder Admin Callbacks
+  if (role === AuthRole.FOUNDER) {
+    const adminCtrl = new FounderAdminController(env, { sendMessage, sendTyping });
+    if (data === 'admin_newkey_1') {
+      await adminCtrl.handleNewKey(chatId, ['Single-Tester Beta', '1']);
+      return;
+    }
+    if (data === 'admin_newkey_5') {
+      await adminCtrl.handleNewKey(chatId, ['5-Tester Cohort', '5']);
+      return;
+    }
+    if (data === 'admin_testers') {
+      await adminCtrl.handleTesterStats(chatId);
+      return;
+    }
+    if (data === 'admin_list_keys') {
+      await adminCtrl.handleListKeys(chatId);
+      return;
+    }
+  }
+
+  // 3. Gate Protected Feature Callbacks
+  if (role !== AuthRole.FOUNDER && role !== AuthRole.TESTER) {
+    console.warn(`Protected callback rejected for unauthorized user: ${chatId}`);
+    await sendMessage(
+      chatId,
+      '🌰 <b>Access Required:</b> Please activate your tester invitation to use this feature.',
+      env,
+      {
+        reply_markup: {
+          inline_keyboard: [
+            [{ text: '🌱 Activate Acorn', callback_data: 'activate_prompt' }],
+          ],
+        },
+      }
+    );
+    return;
+  }
 
   if (data === 'scan_roles') {
     await sendTyping(chatId, env);
