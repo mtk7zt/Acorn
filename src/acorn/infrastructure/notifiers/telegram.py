@@ -99,28 +99,44 @@ class TelegramNotifier(BaseNotifier):
         )
 
     @staticmethod
-    def build_3row_keyboard(job_url: str | None = None, source_name: str = "Job Board") -> dict[str, Any]:
+    def build_3row_keyboard(
+        job_url: str | None = None,
+        source_name: str = "Job Board",
+        job_id: str | None = None,
+    ) -> dict[str, Any]:
         """
-        Constructs the mandatory 3-row Telegram inline keyboard:
-          Row 1: [🚀 Apply on <Source>]
-          Row 2: [➕ Add Job Role] [📋 Manage Roles]
-          Row 3: [📄 ATS Resume Check] [🗑️ Wipe My Data]
+        Constructs the Acorn interactive Telegram inline keyboard:
+          Row 1: [🚀 Apply on <Source>] [🎯 Check ATS Fit]
+          Row 2: [🔍 Scan All Target Roles]
+          Row 3: [➕ Add Job Role] [📋 Manage Roles]
+          Row 4: [📄 ATS Resume Check] [🗑️ Wipe My Data]
         """
         rows: list[list[dict[str, str]]] = []
 
-        # Row 1: Direct Apply
+        # Row 1: Direct Apply & Fit Check
+        top_row = []
         if job_url:
-            rows.append([{"text": f"🚀 Apply on {source_name}", "url": job_url}])
+            top_row.append({"text": f"🚀 Apply on {source_name}", "url": job_url})
+        if job_id:
+            top_row.append({"text": "🎯 Check ATS Fit", "callback_data": f"fit_{job_id}"})
+        if top_row:
+            rows.append(top_row)
 
-        # Row 2: Dynamic Role Management
+        # Row 2: Scan All Target Roles & Breakdown JD
+        rows.append([
+            {"text": "🔍 Scan All Roles", "callback_data": "scan_roles"},
+            {"text": "📋 Breakdown JD", "callback_data": "jd_prompt"},
+        ])
+
+        # Row 3: Dynamic Role Management
         rows.append([
             {"text": "➕ Add Job Role", "callback_data": "add_role_prompt"},
             {"text": "📋 Manage Roles", "callback_data": "list_roles"},
         ])
 
-        # Row 3: Zero-PII Grounded ATS & Data Sovereignty
+        # Row 4: Zero-PII Grounded ATS & Data Sovereignty
         rows.append([
-            {"text": "📄 ATS Resume Check", "callback_data": "ats_prompt"},
+            {"text": "📄 Scan Resume (ATS)", "callback_data": "ats_prompt"},
             {"text": "🗑️ Wipe My Data", "callback_data": "wipe_prompt"},
         ])
 
@@ -159,7 +175,7 @@ class TelegramNotifier(BaseNotifier):
             "text": self.format_job_html(job),
             "parse_mode": "HTML",
             "disable_web_page_preview": False,
-            "reply_markup": self.build_3row_keyboard(job.url, job.source),
+            "reply_markup": self.build_3row_keyboard(job.url, job.source, job_id=job.id),
         }
         return self._post_telegram(payload)
 

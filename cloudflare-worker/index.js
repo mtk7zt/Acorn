@@ -100,19 +100,71 @@ function redactPII(text) {
     .replace(/https?:\/\/(?:www\.)?linkedin\.com\/(?:in|profile)\/[A-Za-z0-9_\-\./]+/g, '[REDACTED_LINKEDIN_URL]');
 }
 
+function analyzeJobDescription(cleanJDText) {
+  const lower = cleanJDText.toLowerCase();
+  const matched = CANONICAL_TECH_KEYWORDS.filter((kw) => {
+    const escaped = kw.replace(/[-/\\^$*+?.()|[\]{}]/g, '\\$&');
+    return new RegExp(`\\b${escaped}\\b`, 'i').test(lower);
+  });
+
+  const skills = matched.length > 0 ? matched : ['troubleshooting', 'python', 'sql', 'api', 'git'];
+  const topSkills = skills.slice(0, 4);
+
+  const bullets = topSkills.map((kw) => {
+    const title = kw.charAt(0).toUpperCase() + kw.slice(1);
+    if (['aws', 'gcp', 'azure', 'cloud', 'docker', 'kubernetes'].includes(kw)) {
+      return `• <b>Accomplished 99.9% application uptime and reduced cloud compute costs by 22%</b> as measured by Prometheus monitoring, by deploying <b>${title}</b> cloud microservices and automated health-check pipelines.`;
+    } else if (['python', 'java', 'sql', 'api', 'rest', 'microservices'].includes(kw)) {
+      return `• <b>Accelerated query execution latency by 35% and scaled backend capacity</b> for 10,000+ peak daily requests as measured by APM logs, by developing optimized <b>${title}</b> backend endpoints and database schemas.`;
+    } else if (['help desk', 'it support', 'troubleshooting', 'active directory', 'servicenow'].includes(kw)) {
+      return `• <b>Resolved 45+ daily technical tickets maintaining a 98% first-contact SLA</b> and 4.9/5 satisfaction, by standardizing <b>${title}</b> triage runbooks and remote diagnostic workflows.`;
+    } else if (['ci/cd', 'github actions', 'terraform', 'linux', 'bash'].includes(kw)) {
+      return `• <b>Reduced deployment cycle times by 40% and eliminated release defects</b> as measured by sprint velocity, by implementing <b>${title}</b> automated CI/CD pipelines and infrastructure as code.`;
+    }
+    return `• <b>Enhanced workflow efficiency by 20% across team deliverables</b> as measured by sprint milestone reviews, by integrating <b>${title}</b> into core operational processes and documentation.`;
+  });
+
+  const skillsLine = skills.map((k) => k.charAt(0).toUpperCase() + k.slice(1)).join(' • ');
+
+  return { skills, bullets, skillsLine };
+}
+
 function evaluateATSResume(cleanResumeText, targetRole = 'Software / IT Support Engineer') {
   const lower = cleanResumeText.toLowerCase();
-  const matched = CANONICAL_TECH_KEYWORDS.filter((kw) => lower.includes(kw));
-  const missing = CANONICAL_TECH_KEYWORDS.filter((kw) => !lower.includes(kw)).slice(0, 5);
+  const matched = CANONICAL_TECH_KEYWORDS.filter((kw) => {
+    const escaped = kw.replace(/[-/\\^$*+?.()|[\]{}]/g, '\\$&');
+    return new RegExp(`\\b${escaped}\\b`, 'i').test(lower);
+  });
+  const missing = CANONICAL_TECH_KEYWORDS.filter((kw) => {
+    const escaped = kw.replace(/[-/\\^$*+?.()|[\]{}]/g, '\\$&');
+    return !new RegExp(`\\b${escaped}\\b`, 'i').test(lower);
+  }).slice(0, 5);
 
   const score = Math.min(100, Math.round((matched.length / Math.max(1, matched.length + missing.length)) * 100));
 
-  const bullets = missing.slice(0, 3).map((kw) => {
+  const edits = [];
+  if (missing.length > 0) {
+    edits.push(`1. <b>Add Critical Missing Keywords to Skills Section:</b> <code>${missing.slice(0, 4).map((k) => k.toUpperCase()).join(', ')}</code>`);
+    edits.push(`2. <b>Swap Passive Statements for Impact Bullets:</b> Replace routine job descriptions with the quantified Google XYZ bullets below.`);
+  } else {
+    edits.push(`1. <b>High Keyword Coverage!</b> Retain clean single-column formatting and standard headings (Skills, Experience, Projects).`);
+  }
+
+  const bullets = (missing.length > 0 ? missing.slice(0, 3) : matched.slice(0, 3)).map((kw) => {
     const title = kw.charAt(0).toUpperCase() + kw.slice(1);
-    return `• <b>Accomplished</b> key milestones as measured by production metrics, by integrating <b>${title}</b> into core system workflows.`;
+    if (['aws', 'gcp', 'azure', 'cloud', 'docker', 'kubernetes'].includes(kw)) {
+      return `• <b>Accomplished 99.9% application uptime and reduced cloud costs by 22%</b> as measured by Prometheus monitoring, by deploying <b>${title}</b> cloud microservices and automated health checks.`;
+    } else if (['python', 'java', 'sql', 'api', 'rest', 'microservices'].includes(kw)) {
+      return `• <b>Accelerated query execution latency by 35% and scaled backend capacity</b> for 10,000+ peak requests as measured by APM logs, by developing optimized <b>${title}</b> backend endpoints and database schemas.`;
+    } else if (['help desk', 'it support', 'troubleshooting', 'active directory', 'servicenow'].includes(kw)) {
+      return `• <b>Resolved 45+ daily technical tickets maintaining a 98% first-contact SLA</b> and 4.9/5 user satisfaction, by standardizing <b>${title}</b> triage runbooks and remote diagnostics.`;
+    } else if (['ci/cd', 'github actions', 'terraform', 'linux', 'bash'].includes(kw)) {
+      return `• <b>Reduced deployment cycle times by 40% and eliminated release defects</b> as measured by release velocity, by implementing <b>${title}</b> automated CI/CD pipelines and infrastructure as code.`;
+    }
+    return `• <b>Enhanced workflow efficiency by 20% across team deliverables</b> as measured by sprint milestone reviews, by integrating <b>${title}</b> into core operational processes and documentation.`;
   });
 
-  return { score, matched, missing, bullets };
+  return { score, matched, missing, edits, bullets };
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -546,24 +598,33 @@ async function handleMessage(message, env) {
   // Command: /start or /help
   if (textTrim === '/start' || textTrim === '/help') {
     const welcomeText = (
-      '🌰 <b>Acorn Job Tracker & ATS Edge Assistant</b>\n\n' +
-      'Always-on edge intelligence for early Canadian tech job alerts and resume tailoring.\n\n' +
+      '🌰 <b>Acorn Job Tracker & Career Intelligence Engine</b>\n\n' +
+      'Always-on edge intelligence for early Canadian tech job discovery and ATS resume tailoring.\n\n' +
       '<b>⚡ Commands & Capabilities:</b>\n' +
+      '• <code>/scan</code> — Scan all Canadian job boards for your target roles\n' +
+      '• <code>/jd</code> — Upload a JD to get ATS passing statements & extracted skills\n' +
+      '• <code>/ats</code> — Upload your resume to get your ATS score & actionable edits\n' +
       '• <code>/roles</code> — View currently tracked roles\n' +
-      '• <code>/ats</code> — Run Zero-PII ATS resume review\n' +
-      '• <code>/scan</code> — Trigger an immediate scraping run\n' +
       '• <code>/forget</code> — Wipe your session data from edge KV\n\n' +
-      '<i>Or send any question in natural language to manage roles and settings!</i>'
+      '<i>Or send any question in natural language to chat with Acorn!</i>'
     );
     await sendMessage(chatId, welcomeText, env, {
       reply_markup: {
         inline_keyboard: [
           [
+            { text: '🔍 Scan All Target Roles', callback_data: 'scan_roles' },
+          ],
+          [
+            { text: '📋 Breakdown JD (ATS Statements & Skills)', callback_data: 'jd_prompt' },
+          ],
+          [
+            { text: '📄 Scan Resume for ATS Score & Edits', callback_data: 'ats_prompt' },
+          ],
+          [
             { text: '📋 View Roles', callback_data: 'list_roles' },
             { text: '➕ Add Role', callback_data: 'add_role_prompt' },
           ],
           [
-            { text: '📄 Check Resume (ATS)', callback_data: 'ats_prompt' },
             { text: '🗑️ Wipe Data', callback_data: 'wipe_prompt' },
           ],
         ],
@@ -619,9 +680,48 @@ async function handleMessage(message, env) {
     await env.CHAT_HISTORY.put(`awaiting_ats:${chatId}`, 'true', { expirationTtl: 300 });
     await sendMessage(
       chatId,
-      '📄 <b>ATS Resume Co-Pilot (Zero-PII):</b>\n\nPlease paste your resume text (or bullet points) below. All emails, phone numbers, postal codes, and personal identifiers will be <b>stripped in-memory</b> before evaluation.',
+      '📄 <b>ATS Resume Scoring & Prescription Engine:</b>\n\n' +
+      'Please paste your resume text below.\n\n' +
+      'Acorn will strip all PII in-memory, evaluate your keyword alignment against active market requirements, ' +
+      'give you an ATS compatibility score, and prescribe the <b>exact line edits and high-impact statements</b> you need to pass ATS screening!',
       env
     );
+    return;
+  }
+
+  // Command 3: Job Description (JD) Breakdown
+  if (textTrim === '/jd') {
+    await env.CHAT_HISTORY.put(`awaiting_jd:${chatId}`, 'true', { expirationTtl: 300 });
+    await sendMessage(
+      chatId,
+      '📋 <b>Job Description (JD) Breakdown & ATS Statement Engine:</b>\n\n' +
+      'Paste the text of any job description or posting in chat below.\n\n' +
+      'Acorn will systematically analyze the role requirements, extract the highest-impact ATS keywords, ' +
+      'and generate <b>human-sounding Google XYZ statements</b> with real business value and numerical metrics ready to copy into your resume!',
+      env
+    );
+    return;
+  }
+
+  // Check if user was in JD breakdown mode
+  const awaitingJd = await env.CHAT_HISTORY.get(`awaiting_jd:${chatId}`);
+  if (awaitingJd === 'true' && textTrim.length > 50) {
+    await env.CHAT_HISTORY.delete(`awaiting_jd:${chatId}`);
+    const cleanJD = redactPII(rawText);
+    const result = analyzeJobDescription(cleanJD);
+
+    const bulletsList = result.bullets.join('\n\n');
+    const skillsDisplay = result.skills.slice(0, 10).map((k) => `<code>${k}</code>`).join(', ');
+
+    const reply = (
+      `📋 <b>Job Description ATS Blueprint:</b>\n\n` +
+      `🔑 <b>Key Competencies Extracted:</b>\n${skillsDisplay}\n\n` +
+      `📝 <b>Recommended Skills Section Line:</b>\n<i>${result.skillsLine}</i>\n\n` +
+      `💡 <b>High-Impact ATS Passing Statements (Google XYZ):</b>\n${bulletsList}\n\n` +
+      `💡 <i>Copy these bullet points directly into your resume under relevant project or work experience to pass ATS screening!</i>`
+    );
+
+    await sendMessage(chatId, reply, env);
     return;
   }
 
@@ -635,13 +735,15 @@ async function handleMessage(message, env) {
     const matchEmoji = result.score >= 70 ? '🟢' : result.score >= 50 ? '🟡' : '🔴';
     const matchedList = result.matched.slice(0, 8).join(', ') || 'General fundamentals';
     const missingList = result.missing.join(', ') || 'None';
+    const editsList = (result.edits || []).join('\n');
     const bulletsList = result.bullets.join('\n\n');
 
     const reply = (
       `📄 <b>Grounded ATS Resume Match:</b> ${matchEmoji} <b>${result.score}% Match Score</b>\n\n` +
       `✅ <b>Matched Competencies:</b>\n<code>${matchedList}</code>\n\n` +
       `⚠️ <b>Missing High-Impact Keywords:</b>\n<code>${missingList}</code>\n\n` +
-      `💡 <b>Google XYZ-Formula Bullet Recommendations:</b>\n${bulletsList}\n\n` +
+      `🛠️ <b>Actionable Edits & Prescriptions:</b>\n${editsList}\n\n` +
+      `💡 <b>Recommended Google XYZ-Formula Bullets:</b>\n${bulletsList}\n\n` +
       `🔒 <i>Evaluated strictly in-memory with zero PII retention. Use /forget anytime to purge session state.</i>`
     );
 
@@ -703,7 +805,45 @@ async function handleCallbackQuery(callbackQuery, env) {
 
   await answerCallback(callbackQuery.id, '', env);
 
-  if (data === 'add_role_prompt') {
+  if (data === 'scan_roles') {
+    await sendTyping(chatId, env);
+    try {
+      const ok = await ghDispatchWorkflow(env);
+      if (ok) {
+        await sendMessage(
+          chatId,
+          '🔍 <b>Scanning Canadian job boards for all your target roles...</b>\n\n' +
+          '⚡ Dispatched background scouts across LinkedIn, Indeed, and Job Bank CA.\n' +
+          'Fresh qualified Signals will arrive automatically as soon as first-mover matches are found!',
+          env
+        );
+      } else {
+        await sendMessage(chatId, '⚠️ Could not trigger automatic scan. Please try again in a few moments.', env);
+      }
+    } catch (err) {
+      await sendMessage(chatId, `⚠️ Failed to trigger scan: ${err?.message || err}`, env);
+    }
+  } else if (data && data.startsWith('fit_')) {
+    const jobId = data.replace('fit_', '');
+    await env.CHAT_HISTORY.put(`awaiting_ats:${chatId}`, 'true', { expirationTtl: 300 });
+    await sendMessage(
+      chatId,
+      `🎯 <b>ATS Resume Fit Check for Opportunity:</b>\n\n` +
+      `Paste your resume text or bullet points in chat below.\n\n` +
+      `Acorn will evaluate your keyword frequency and produce <b>tailored Google XYZ bullet points</b> (with metrics like 99.9% uptime, 35% latency, 45+ tickets) to help you pass the ATS screen for this role!`,
+      env
+    );
+  } else if (data === 'jd_prompt') {
+    await env.CHAT_HISTORY.put(`awaiting_jd:${chatId}`, 'true', { expirationTtl: 300 });
+    await sendMessage(
+      chatId,
+      '📋 <b>Job Description (JD) Breakdown & ATS Statement Engine:</b>\n\n' +
+      'Paste the full text or bullet points of any job description below.\n\n' +
+      'Acorn will systematically extract the highest-impact ATS keywords, ' +
+      'and generate <b>human-sounding Google XYZ statements</b> with real business value and numerical metrics (e.g. 99.9% uptime, 35% latency drop, 45+ tickets at 98% SLA) ready to copy into your resume!',
+      env
+    );
+  } else if (data === 'add_role_prompt') {
     await sendMessage(
       chatId,
       '➕ <b>Add Tracked Role:</b>\n\nSimply text me the role(s) you wish to track:\n<i>"Add QA Analyst, Junior DevOps Engineer"</i>',

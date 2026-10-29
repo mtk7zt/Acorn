@@ -56,8 +56,11 @@ class JobListing:
     priority_tier: int
     priority_badge: str
     applicant_count: int | None = None
+    applicant_count_observed: bool = False
     velocity_rank: int = int(VelocityRank.TIER_B_EARLY_WINDOW)
     velocity_badge: str = "🟢 Early Window"
+    velocity_reason: str = ""
+    provenance_sources: list[str] = field(default_factory=list)
     is_reposted: bool = False
     age_seconds: int = 1800
     fingerprint: str = ""
@@ -66,6 +69,10 @@ class JobListing:
     )
 
     def __post_init__(self) -> None:
+        if self.applicant_count is not None and not self.applicant_count_observed:
+            self.applicant_count_observed = True
+        if not self.provenance_sources and self.source:
+            self.provenance_sources = [self.source]
         if not self.fingerprint:
             self.fingerprint = self.compute_fingerprint(self.company, self.title, self.location)
 
@@ -153,3 +160,4 @@ class AppConfig:
             default_tier=3,
         ),
     ])
+

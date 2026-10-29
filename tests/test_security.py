@@ -43,5 +43,15 @@ def test_ats_resume_match_evaluation():
     assert "docker" in result.matched_keywords
     assert "aws" in result.missing_keywords
     assert len(result.xyz_bullet_recommendations) > 0
-    # Check Google XYZ formula pattern
+    # Check Google XYZ formula pattern with quantified metrics
     assert any("Accomplished" in bullet for bullet in result.xyz_bullet_recommendations)
+    assert any("99.9% application uptime" in bullet for bullet in result.xyz_bullet_recommendations)
+
+
+
+def test_purge_user_data():
+    from src.acorn.domain.security import purge_user_data
+    res = purge_user_data("usr_test123")
+    assert res["status"] == "purged"
+    assert res["user_id"] == "usr_test123"
+

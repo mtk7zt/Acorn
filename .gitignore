@@ -53,3 +53,9 @@ Thumbs.db
 .idea/
 *.swp
 *~
+
+# Databases & Local State
+*.db
+*.sqlite
+*.sqlite3
+
