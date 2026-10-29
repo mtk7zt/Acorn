@@ -286,25 +286,39 @@ async function ghDispatchWorkflow(env, options = {}) {
   if (options.targetRoles) inputs.target_roles = Array.isArray(options.targetRoles) ? options.targetRoles.join(', ') : String(options.targetRoles);
   if (options.userId) inputs.user_id = String(options.userId);
 
-  const body = { ref: 'main' };
+  // Default to Dev branch where the BETA-02 workflow inputs are defined
+  const ref = env.GITHUB_BRANCH || options.ref || 'Dev';
+  const body = { ref };
   if (Object.keys(inputs).length > 0) {
     body.inputs = inputs;
   }
 
-  const res = await fetch(
-    `${GITHUB_API}/repos/${REPO}/actions/workflows/job_tracker.yml/dispatches`,
-    {
-      method: 'POST',
-      headers: {
-        Authorization: `token ${env.GITHUB_PAT}`,
-        Accept: 'application/vnd.github.v3+json',
-        'User-Agent': 'Acorn-Edge-Worker/2.0',
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify(body),
+  try {
+    const res = await fetch(
+      `${GITHUB_API}/repos/${REPO}/actions/workflows/job_tracker.yml/dispatches`,
+      {
+        method: 'POST',
+        headers: {
+          Authorization: `token ${env.GITHUB_PAT}`,
+          Accept: 'application/vnd.github.v3+json',
+          'User-Agent': 'Acorn-Edge-Worker/2.0',
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(body),
+      }
+    );
+
+    if (res.status === 204) {
+      return { ok: true, status: 204 };
     }
-  );
-  return res.status === 204;
+
+    const errText = await res.text().catch(() => '');
+    console.error(`GitHub Actions dispatch error [ref: ${ref}]: HTTP ${res.status}: ${errText}`);
+    return { ok: false, status: res.status, error: errText };
+  } catch (netErr) {
+    console.error(`GitHub Actions network error:`, netErr);
+    return { ok: false, status: 500, error: netErr?.message || String(netErr) };
+  }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -844,13 +858,13 @@ async function handleMessage(message, env) {
         recipientAddress: chatId,
       });
 
-      const ok = await ghDispatchWorkflow(env, {
+      const dispatchRes = await ghDispatchWorkflow(env, {
         targetChatId: chatId,
         targetRoles,
         userId: acornUserId,
       });
 
-      if (ok) {
+      if (dispatchRes.ok) {
         const rolesList = targetRoles.map((r) => `• <b>${r}</b>`).join('\n');
         await sendMessage(
           chatId,
@@ -858,7 +872,13 @@ async function handleMessage(message, env) {
           env
         );
       } else {
-        await sendMessage(chatId, '⚠️ GitHub Actions dispatch returned non-204 status. Check GITHUB_PAT.', env);
+        const statusSnippet = dispatchRes.status ? ` (HTTP ${dispatchRes.status})` : '';
+        const errorDetail = dispatchRes.error ? `\n\n<code>${dispatchRes.error.slice(0, 200)}</code>` : '';
+        await sendMessage(
+          chatId,
+          `⚠️ <b>GitHub Actions Dispatch Issue${statusSnippet}:</b>${errorDetail}\n\nPlease verify that your <code>GITHUB_PAT</code> secret in Cloudflare has <b>workflow</b> permissions and access to repository <code>mtk7zt/Acorn</code>.`,
+          env
+        );
       }
     } catch (err) {
       await sendMessage(chatId, `⚠️ Failed to trigger workflow: ${err?.message || err}`, env);
@@ -1144,13 +1164,13 @@ async function handleCallbackQuery(callbackQuery, env) {
         recipientAddress: chatId,
       });
 
-      const ok = await ghDispatchWorkflow(env, {
+      const dispatchRes = await ghDispatchWorkflow(env, {
         targetChatId: chatId,
         targetRoles,
         userId: acornUserId,
       });
 
-      if (ok) {
+      if (dispatchRes.ok) {
         const rolesList = targetRoles.map((r) => `• <b>${r}</b>`).join('\n');
         await sendMessage(
           chatId,
@@ -1158,7 +1178,13 @@ async function handleCallbackQuery(callbackQuery, env) {
           env
         );
       } else {
-        await sendMessage(chatId, '⚠️ Could not trigger automatic scan. Please try again in a few moments.', env);
+        const statusSnippet = dispatchRes.status ? ` (HTTP ${dispatchRes.status})` : '';
+        const errorDetail = dispatchRes.error ? `\n\n<code>${dispatchRes.error.slice(0, 200)}</code>` : '';
+        await sendMessage(
+          chatId,
+          `⚠️ <b>GitHub Actions Dispatch Issue${statusSnippet}:</b>${errorDetail}\n\nPlease verify that your <code>GITHUB_PAT</code> secret in Cloudflare has <b>workflow</b> permissions and access to repository <code>mtk7zt/Acorn</code>.`,
+          env
+        );
       }
     } catch (err) {
       await sendMessage(chatId, `⚠️ Failed to trigger scan: ${err?.message || err}`, env);
