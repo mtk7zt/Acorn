@@ -5,7 +5,7 @@
 **Affiliation:** Department of Software Engineering & Advanced Computing Systems  
 **Publication Date:** October 2026  
 **Document Identifier:** ACORN-ARCH-SPEC-2026-V1  
-**Referencing Standard:** Harvard Formatting System (*Cite Them Right* Standard)
+
 
 ---
 
@@ -272,7 +272,7 @@ The Acorn baseline system demonstrates effective functional integration for sche
 
 ---
 
-### 8. Harvard Reference List
+### 8. Reference List
 
 * Brown, S. (2022) *Software Architecture for Developers: Volume 2: Visualise, document and explore your software architecture*. Leanpub.
 * Gamma, E., Helm, R., Johnson, R. and Vlissides, J. (1994) *Design Patterns: Elements of Reusable Object-Oriented Software*. Reading, MA: Addison-Wesley.
