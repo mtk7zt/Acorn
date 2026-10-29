@@ -48,14 +48,17 @@ class JobTrackingPipeline:
         self.notifier = notifier
         self.config = config
 
-    def run(self, dry_run: bool = False) -> PipelineSummary:
+    def run(self, dry_run: bool = False, custom_roles: list[str] | None = None) -> PipelineSummary:
         """Executes full batch harvesting and alert workflow enforcing all 4 mandatory rules."""
         if not self.config.cron_enabled and not dry_run:
             logger.info("Pipeline execution is PAUSED in bot_config.json ('cron_enabled': false). Exiting.")
             return PipelineSummary(0, 0, 0, 0, paused=True)
 
         roles_cfg = self.store.load_roles_config()
-        roles = roles_cfg.get("roles", [])
+        if custom_roles:
+            roles = [r.strip() for r in custom_roles if r.strip()]
+        else:
+            roles = roles_cfg.get("roles", [])
         seen = self.store.load_seen_jobs()
 
         logger.info("Initiating Acorn Pipeline: %d roles, %d seen keys cached.", len(roles), len(seen))
@@ -133,7 +136,8 @@ class JobTrackingPipeline:
 
             # Atomically save state
             self.store.save_seen_jobs(seen)
-            self.store.save_roles_config(roles_cfg)
+            if not custom_roles:
+                self.store.save_roles_config(roles_cfg)
             logger.info("State successfully updated: %d alerts dispatched.", alerts_sent)
         else:
             logger.info("Dry-run mode: suppressed dispatching %d alerts.", len(sorted_jobs))

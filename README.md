@@ -42,11 +42,21 @@ The repository provides:
   - Human-sounding, quantified Google XYZ bullet points displaying genuine business impact (e.g. 99.9% uptime, 35% latency drop, 45+ daily tickets with 98% SLA, 40% cycle time reduction).
   - Systematic Job Description (JD) breakdown and resume gap analysis.
 - **Omnichannel Telegram Bot & Edge Gateway (`cloudflare-worker/`)**:
-  - Cloudflare Worker running Gemini 1.5 Flash conversational intelligence with 50-message KV memory.
-  - Interactive bot keyboard with `[🚀 Apply]`, `[🎯 Check ATS Fit]`, `[🔍 Scan All Target Roles]`, `[➕ Add Job Role]`, `[📋 Manage Roles]`, `[📄 ATS Resume Check]`, and `[🗑️ Wipe My Data]`.
+  - Cloudflare Worker running Google Gemini Flash conversational intelligence with 50-message KV memory.
+  - Interactive bot keyboard with `[👤 My Profile & Roles]`, `[🔍 Scan Target Roles]`, `[🎯 Check ATS Fit]`, `[📋 Breakdown JD]`, `[📄 Scan Resume]`, and `[🗑️ Wipe Data]`.
   - Edge `/api/v1/*` REST routes for D1-backed invitation keys, session authentication, and audit logs.
+- **BETA-01 — Controlled Beta Tester Activation**:
+  - 256-bit CSPRNG key generation (`ACRN-BETA-...`) stored as peppered HMAC-SHA256 digests.
+  - Single-use and cohort capacity keys with atomic zero-oversubscription concurrency defense.
+  - Central Authorization Guard (`FOUNDER`, `TESTER`, `PUBLIC`, `REVOKED`) and founder admin suite (`/admin`, `/newkey`, `/keys`, `/testers`, `/grant_access`, `/revoke_*`).
+- **BETA-02 — Personalized Profiles, Scan Isolation & Data Portability**:
+  - Canonical user identities (`acorn_user_id`), transport-independent Telegram identity bindings.
+  - Isolated per-user profiles, target roles, and search preferences (`/profile`, `/setroles`, `/setlocations`, `/preferences`).
+  - Strict user-owned scan dispatch and recipient binding: 100% notification isolation with zero cross-user leakage.
+  - Reorganized non-sensitive operational files under `data/runtime/` with full deduplication history preserved.
+  - Cloud-independent storage contracts (`IResumeStorage`) and versioned profile export/import (`acorn-profile` v1.0).
 - **Automated Pipeline**: Scheduled GitHub Actions runner with Canadian GTA-first geofencing, freshness ranking, and saturation detection.
-- **100% Passing Automated Tests**: 37 unit and integration tests verifying domain models, persistence, geofence, velocity, security, FastAPI endpoints, and invitation replay defense.
+- **100% Passing Automated Tests**: **61 unit, integration, concurrency, and security tests** verifying domain models, persistence, geofence, velocity, security, user isolation, profile portability, and activation lifecycles.
 
 ---
 

@@ -29,6 +29,11 @@ from src.acorn.domain.models import JobListing, PriorityTier, VelocityRank
 from src.acorn.infrastructure.notifiers.telegram import TelegramNotifier
 from src.acorn.infrastructure.scrapers.factory import ScraperFactory
 from src.acorn.infrastructure.storage.json_store import AtomicJsonStateStore
+from src.acorn.infrastructure.paths import (
+    get_seen_jobs_path,
+    get_roles_config_path,
+    get_bot_config_path,
+)
 
 logging.basicConfig(
     level=logging.INFO,
@@ -53,9 +58,9 @@ DEFAULT_TARGET_ROLES: list[str] = [
     "Junior Java Developer",
 ]
 
-SEEN_JOBS_FILE = Path(os.getenv("SEEN_JOBS_FILE", "seen_jobs.json"))
-ROLES_CONFIG_FILE = Path(os.getenv("ROLES_CONFIG_FILE", "roles_config.json"))
-BOT_CONFIG_FILE = Path(os.getenv("BOT_CONFIG_FILE", "bot_config.json"))
+SEEN_JOBS_FILE = get_seen_jobs_path()
+ROLES_CONFIG_FILE = get_roles_config_path()
+BOT_CONFIG_FILE = get_bot_config_path()
 
 
 def main() -> None:
@@ -72,18 +77,39 @@ def main() -> None:
         action="store_true",
         help="Transmit a sample test notification with interactive 3-row buttons to verify bot connectivity",
     )
+    parser.add_argument(
+        "--target-chat-id",
+        type=str,
+        default="",
+        help="Target recipient Telegram chat ID. When specified, overrides default TELEGRAM_CHAT_ID to guarantee user isolation.",
+    )
+    parser.add_argument(
+        "--user-id",
+        type=str,
+        default="",
+        help="Canonical Acorn User ID for scan ownership and audit tracking.",
+    )
+    parser.add_argument(
+        "--roles",
+        type=str,
+        default="",
+        help="Comma-separated custom target roles for personalized scanning.",
+    )
     args = parser.parse_args()
 
     # Load centralized configuration
     config = ConfigurationManager.load_app_config(BOT_CONFIG_FILE)
 
-    # Resolve environment secrets
+    # Resolve environment secrets and recipient isolation
     bot_token = os.getenv("TELEGRAM_BOT_TOKEN", "").strip()
-    chat_id = os.getenv("TELEGRAM_CHAT_ID", "").strip()
+    
+    # Isolate recipient: If --target-chat-id was provided, use it strictly.
+    # Otherwise fallback to TELEGRAM_CHAT_ID.
+    chat_id = args.target_chat_id.strip() or os.getenv("TARGET_CHAT_ID", "").strip() or os.getenv("TELEGRAM_CHAT_ID", "").strip()
 
     if not bot_token or not chat_id:
         if not args.dry_run:
-            raise SystemExit("ERROR: TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID environment variables must be configured.")
+            raise SystemExit("ERROR: TELEGRAM_BOT_TOKEN and target recipient chat ID must be configured.")
         logger.warning("TELEGRAM credentials missing; executing in dry-run mode.")
 
     # Initialize Object-Oriented Components via Dependency Injection
@@ -135,7 +161,8 @@ def main() -> None:
         return
 
     # 2. Execute Full Batch Pipeline
-    summary = pipeline.run(dry_run=args.dry_run)
+    custom_roles = [r.strip() for r in args.roles.split(",") if r.strip()] if args.roles else None
+    summary = pipeline.run(dry_run=args.dry_run, custom_roles=custom_roles)
     if summary.paused:
         logger.info("Pipeline completed early: execution is paused.")
     else:

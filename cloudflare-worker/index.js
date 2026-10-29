@@ -37,6 +37,9 @@ import { handleAcornApiV1 } from './api_v1_routes.js';
 import { resolveAuthRole, isFounder, AuthRole } from './activation/auth.js';
 import { ActivationService } from './activation/service.js';
 import { FounderAdminController } from './activation/admin.js';
+import { ProfileController } from './profile/controller.js';
+import { IdentityService } from './profile/identity.js';
+import { ProfileRepository } from './profile/repository.js';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // 1. HTTP GATEWAY & ACCESS CONTROL
@@ -277,7 +280,17 @@ async function ghPutWithRetry(path, mutateFn, message, env, maxRetries = 3) {
   throw new Error(`Max retries exceeded updating ${path}`);
 }
 
-async function ghDispatchWorkflow(env) {
+async function ghDispatchWorkflow(env, options = {}) {
+  const inputs = {};
+  if (options.targetChatId) inputs.target_chat_id = String(options.targetChatId);
+  if (options.targetRoles) inputs.target_roles = Array.isArray(options.targetRoles) ? options.targetRoles.join(', ') : String(options.targetRoles);
+  if (options.userId) inputs.user_id = String(options.userId);
+
+  const body = { ref: 'main' };
+  if (Object.keys(inputs).length > 0) {
+    body.inputs = inputs;
+  }
+
   const res = await fetch(
     `${GITHUB_API}/repos/${REPO}/actions/workflows/job_tracker.yml/dispatches`,
     {
@@ -288,7 +301,7 @@ async function ghDispatchWorkflow(env) {
         'User-Agent': 'Acorn-Edge-Worker/2.0',
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify({ ref: 'main' }),
+      body: JSON.stringify(body),
     }
   );
   return res.status === 204;
@@ -617,6 +630,8 @@ async function handleMessage(message, env) {
         '🌰 <b>Acorn Job Tracker & Career Intelligence Engine</b>\n\n' +
         'Always-on edge intelligence for early Canadian tech job discovery and ATS resume tailoring.\n\n' +
         '<b>⚡ Commands & Capabilities:</b>\n' +
+        '• <code>/profile</code> — View and manage your personal career profile\n' +
+        '• <code>/setroles</code> — Customize your target job search positions\n' +
         '• <code>/scan</code> — Scan all Canadian job boards for your target roles\n' +
         '• <code>/jd</code> — Upload a JD to get ATS passing statements & extracted skills\n' +
         '• <code>/ats</code> — Upload your resume to get your ATS score & actionable edits\n' +
@@ -628,17 +643,14 @@ async function handleMessage(message, env) {
         reply_markup: {
           inline_keyboard: [
             [
-              { text: '🔍 Scan All Target Roles', callback_data: 'scan_roles' },
+              { text: '👤 My Profile & Roles', callback_data: 'prof_view' },
+              { text: '🔍 Scan Target Roles', callback_data: 'scan_roles' },
             ],
             [
               { text: '📋 Breakdown JD (ATS Statements & Skills)', callback_data: 'jd_prompt' },
             ],
             [
               { text: '📄 Scan Resume for ATS Score & Edits', callback_data: 'ats_prompt' },
-            ],
-            [
-              { text: '📋 View Roles', callback_data: 'list_roles' },
-              { text: '➕ Add Role', callback_data: 'add_role_prompt' },
             ],
             [
               { text: '🗑️ Wipe Data', callback_data: 'wipe_prompt' },
@@ -756,28 +768,95 @@ async function handleMessage(message, env) {
   // Visual feedback
   await sendTyping(chatId, env);
 
-  // Command: /roles
+  // Profile management & Onboarding commands (/profile, /setroles, /setlocations, /preferences, /exportprofile, /uploadresume, /deleteresume)
+  const profileController = new ProfileController(env, { sendMessage, sendTyping });
+  const handledProfile = await profileController.handleProfileCommand(chatId, textTrim, env);
+  if (handledProfile) return;
+
+  // Command: /roles (Personalized user target roles)
   if (textTrim === '/roles') {
     try {
-      const { content } = await ghGet('roles_config.json', env);
-      const list = content.roles.map((r, i) => `${i + 1}. <b>${r}</b>`).join('\n');
-      await sendMessage(
-        chatId,
-        `📋 <b>Active Tracked Roles (${content.roles.length}):</b>\n\n${list}\n\n<i>Use /scan to trigger a new scrape run!</i>`,
-        env
-      );
+      const identityService = new IdentityService(env);
+      const profileRepo = new ProfileRepository(env);
+      const { acornUserId } = await identityService.getOrCreateUserByTelegram(chatId);
+      const userRoles = await profileRepo.getUserRoles(acornUserId);
+
+      if (userRoles && userRoles.length > 0) {
+        const list = userRoles.map((r, i) => `${i + 1}. <b>${r.role_title}</b>`).join('\n');
+        await sendMessage(
+          chatId,
+          `📋 <b>Your Active Target Roles (${userRoles.length}):</b>\n\n${list}\n\n<i>Use /scan to trigger a search, or /setroles to update!</i>`,
+          env
+        );
+      } else {
+        await sendMessage(
+          chatId,
+          '📋 <b>No Target Roles Set Yet</b>\n\nUse <code>/setroles &lt;Role 1, Role 2&gt;</code> to choose what jobs Acorn tracks for you!',
+          env,
+          {
+            reply_markup: {
+              inline_keyboard: [
+                [{ text: '🎯 Set Target Roles', callback_data: 'prof_set_roles' }],
+              ],
+            },
+          }
+        );
+      }
     } catch {
-      await sendMessage(chatId, '⚠️ Unable to fetch roles from repository.', env);
+      await sendMessage(chatId, '⚠️ Unable to fetch roles.', env);
     }
     return;
   }
 
-  // Command: /scan
+  // Command: /scan (Strictly user-isolated scanning)
   if (textTrim === '/scan') {
     try {
-      const ok = await ghDispatchWorkflow(env);
+      const identityService = new IdentityService(env);
+      const profileRepo = new ProfileRepository(env);
+      const { acornUserId } = await identityService.getOrCreateUserByTelegram(chatId);
+      const userRoles = await profileRepo.getUserRoles(acornUserId);
+
+      let targetRoles = [];
+      if (userRoles && userRoles.length > 0) {
+        targetRoles = userRoles.map((r) => r.role_title);
+      } else {
+        // Prompt onboarding if user has not set target roles
+        const promptMsg = (
+          '🎯 <b>Before scanning, tell Acorn what roles you want to find!</b>\n\n' +
+          'You have not configured your target roles yet.\n\n' +
+          'Reply with <code>/setroles</code> followed by comma-separated titles. For example:\n' +
+          '<code>/setroles Junior Software Engineer, Cloud Support, Data Analyst</code>\n\n' +
+          '<i>Once set, /scan will search specifically for your positions!</i>'
+        );
+        await sendMessage(chatId, promptMsg, env, {
+          reply_markup: {
+            inline_keyboard: [
+              [{ text: '🎯 Set Target Roles', callback_data: 'prof_set_roles' }],
+            ],
+          },
+        });
+        return;
+      }
+
+      await profileRepo.recordScanRequest({
+        acornUserId,
+        correlationId: crypto.randomUUID(),
+        recipientAddress: chatId,
+      });
+
+      const ok = await ghDispatchWorkflow(env, {
+        targetChatId: chatId,
+        targetRoles,
+        userId: acornUserId,
+      });
+
       if (ok) {
-        await sendMessage(chatId, '🚀 <b>Job Tracker Scan Triggered:</b> GitHub Actions workflow dispatched successfully!', env);
+        const rolesList = targetRoles.map((r) => `• <b>${r}</b>`).join('\n');
+        await sendMessage(
+          chatId,
+          `🚀 <b>Personalized Job Scan Triggered!</b>\n\n<b>Searching for your target roles:</b>\n${rolesList}\n\n<i>Qualified matching opportunities will be delivered directly to you here!</i>`,
+          env
+        );
       } else {
         await sendMessage(chatId, '⚠️ GitHub Actions dispatch returned non-204 status. Check GITHUB_PAT.', env);
       }
@@ -995,16 +1074,87 @@ async function handleCallbackQuery(callbackQuery, env) {
     return;
   }
 
+  if (data === 'prof_view') {
+    const profileController = new ProfileController(env, { sendMessage, sendTyping });
+    const identityService = new IdentityService(env);
+    const { acornUserId } = await identityService.getOrCreateUserByTelegram(chatId);
+    await profileController.showProfile(chatId, acornUserId);
+    return;
+  }
+
+  if (data === 'prof_set_roles') {
+    const profileController = new ProfileController(env, { sendMessage, sendTyping });
+    await profileController.promptRoles(chatId);
+    return;
+  }
+
+  if (data === 'prof_set_locs') {
+    await sendMessage(
+      chatId,
+      '📍 <b>Set Search Locations:</b>\n\nReply with <code>/setlocations</code> followed by cities or Remote.\n<i>Example:</i> <code>/setlocations Toronto, Mississauga, Remote</code>',
+      env
+    );
+    return;
+  }
+
+  if (data === 'prof_export') {
+    const identityService = new IdentityService(env);
+    const profileRepo = new ProfileRepository(env);
+    const { acornUserId } = await identityService.getOrCreateUserByTelegram(chatId);
+    const profileData = await profileRepo.exportProfile(acornUserId);
+    await sendMessage(
+      chatId,
+      `📦 <b>Your Portable Acorn Profile (v1.0):</b>\n\n<pre><code>${JSON.stringify(profileData, null, 2)}</code></pre>`,
+      env
+    );
+    return;
+  }
+
   if (data === 'scan_roles') {
     await sendTyping(chatId, env);
     try {
-      const ok = await ghDispatchWorkflow(env);
+      const identityService = new IdentityService(env);
+      const profileRepo = new ProfileRepository(env);
+      const { acornUserId } = await identityService.getOrCreateUserByTelegram(chatId);
+      const userRoles = await profileRepo.getUserRoles(acornUserId);
+
+      let targetRoles = [];
+      if (userRoles && userRoles.length > 0) {
+        targetRoles = userRoles.map((r) => r.role_title);
+      } else {
+        const promptMsg = (
+          '🎯 <b>Before scanning, tell Acorn what roles you want to find!</b>\n\n' +
+          'You have not set your personal target roles yet.\n\n' +
+          'Reply with <code>/setroles</code> followed by comma-separated titles. For example:\n' +
+          '<code>/setroles Junior Software Engineer, Cloud Support, Data Analyst</code>'
+        );
+        await sendMessage(chatId, promptMsg, env, {
+          reply_markup: {
+            inline_keyboard: [
+              [{ text: '🎯 Set Target Roles', callback_data: 'prof_set_roles' }],
+            ],
+          },
+        });
+        return;
+      }
+
+      await profileRepo.recordScanRequest({
+        acornUserId,
+        correlationId: crypto.randomUUID(),
+        recipientAddress: chatId,
+      });
+
+      const ok = await ghDispatchWorkflow(env, {
+        targetChatId: chatId,
+        targetRoles,
+        userId: acornUserId,
+      });
+
       if (ok) {
+        const rolesList = targetRoles.map((r) => `• <b>${r}</b>`).join('\n');
         await sendMessage(
           chatId,
-          '🔍 <b>Scanning Canadian job boards for all your target roles...</b>\n\n' +
-          '⚡ Dispatched background scouts across LinkedIn, Indeed, and Job Bank CA.\n' +
-          'Fresh qualified Signals will arrive automatically as soon as first-mover matches are found!',
+          `🚀 <b>Personalized Job Scan Triggered!</b>\n\n<b>Searching for your target roles:</b>\n${rolesList}\n\n<i>Qualified matching opportunities will be delivered directly to you here!</i>`,
           env
         );
       } else {
