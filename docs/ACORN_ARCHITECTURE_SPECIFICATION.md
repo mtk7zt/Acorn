@@ -6,8 +6,6 @@
 **Publication Date:** October 2026  
 **Document Standard:** ISO/IEC/IEEE 42010:2022 Systems & Software Engineering Architecture Description  
 **Security Frameworks:** NIST SP 800-53 Rev. 5, OWASP Top 10:2021, OWASP LLM Top 10 (2025)  
-**Referencing Standard:** Harvard Author–Date System (*Cite Them Right* Standard)
-
 ---
 
 ### Abstract
@@ -357,7 +355,7 @@ Acorn AI demonstrates an enterprise-grade realization of autonomous labor market
 
 ---
 
-### 10. Harvard Reference List
+### 10. Reference List
 
 * Bernstein, P. A. and Goodman, N. (1981) 'Concurrency Control in Distributed Database Systems', *ACM Computing Surveys*, 13(2), pp. 185–221. doi: 10.1145/356842.356846.
 * Bock, L. (2015) *Work Rules!: Insights from Inside Google That Will Transform How You Live and Lead*. New York: Twelve.
