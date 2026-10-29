@@ -161,7 +161,13 @@ def main() -> None:
         return
 
     # 2. Execute Full Batch Pipeline
-    custom_roles = [r.strip() for r in args.roles.split(",") if r.strip()] if args.roles else None
+    roles_str = args.roles.strip() if args.roles else os.getenv("TARGET_ROLES", "").strip()
+    custom_roles = [r.strip() for r in roles_str.split(",") if r.strip()] if roles_str else None
+    
+    user_id = args.user_id.strip() if args.user_id else (os.getenv("TARGET_USER_ID", "").strip() or os.getenv("USER_ID", "").strip())
+    if user_id:
+        logger.info("Executing personalized scan for Acorn User: %s (Recipient: %s)", user_id, chat_id)
+
     summary = pipeline.run(dry_run=args.dry_run, custom_roles=custom_roles)
     if summary.paused:
         logger.info("Pipeline completed early: execution is paused.")

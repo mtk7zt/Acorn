@@ -64,19 +64,21 @@ jobs:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
           TARGET_CHAT_ID: ${{ github.event.inputs.target_chat_id }}
+          TARGET_ROLES: ${{ github.event.inputs.target_roles }}
+          TARGET_USER_ID: ${{ github.event.inputs.user_id }}
           TEST_TELEGRAM: ${{ github.event.inputs.test_telegram || 'false' }}
         run: |
-          EXTRA_ARGS=""
-          if [ -n "${{ github.event.inputs.target_chat_id }}" ]; then
-            EXTRA_ARGS="$EXTRA_ARGS --target-chat-id ${{ github.event.inputs.target_chat_id }}"
+          ARGS=()
+          if [ -n "$TARGET_CHAT_ID" ]; then
+            ARGS+=(--target-chat-id "$TARGET_CHAT_ID")
           fi
-          if [ -n "${{ github.event.inputs.target_roles }}" ]; then
-            EXTRA_ARGS="$EXTRA_ARGS --roles \"${{ github.event.inputs.target_roles }}\""
+          if [ -n "$TARGET_ROLES" ]; then
+            ARGS+=(--roles "$TARGET_ROLES")
           fi
-          if [ -n "${{ github.event.inputs.user_id }}" ]; then
-            EXTRA_ARGS="$EXTRA_ARGS --user-id ${{ github.event.inputs.user_id }}"
+          if [ -n "$TARGET_USER_ID" ]; then
+            ARGS+=(--user-id "$TARGET_USER_ID")
           fi
-          python job_tracker_bot.py $EXTRA_ARGS
+          python job_tracker_bot.py "${ARGS[@]}"
 
       - name: Commit updated state files
         run: |
