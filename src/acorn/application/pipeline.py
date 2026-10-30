@@ -7,7 +7,7 @@ applicant velocity ranking, and dual-key canonical deduplication.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
 import logging
 import time
@@ -31,6 +31,8 @@ class PipelineSummary:
     new_jobs_found: int
     alerts_transmitted: int
     paused: bool = False
+    failed_sources: list[str] = field(default_factory=list)
+    successful_sources: list[str] = field(default_factory=list)
 
 
 class JobTrackingPipeline:
@@ -48,7 +50,12 @@ class JobTrackingPipeline:
         self.notifier = notifier
         self.config = config
 
-    def run(self, dry_run: bool = False, custom_roles: list[str] | None = None) -> PipelineSummary:
+    def run(
+        self,
+        dry_run: bool = False,
+        custom_roles: list[str] | None = None,
+        user_id: str | None = None,
+    ) -> PipelineSummary:
         """Executes full batch harvesting and alert workflow enforcing all 4 mandatory rules."""
         if not self.config.cron_enabled and not dry_run:
             logger.info("Pipeline execution is PAUSED in bot_config.json ('cron_enabled': false). Exiting.")
@@ -59,11 +66,24 @@ class JobTrackingPipeline:
             roles = [r.strip() for r in custom_roles if r.strip()]
         else:
             roles = roles_cfg.get("roles", [])
-        seen = self.store.load_seen_jobs()
 
-        logger.info("Initiating Acorn Pipeline: %d roles, %d seen keys cached.", len(roles), len(seen))
+        # Load global seen store for discovery caching
+        global_seen = self.store.load_seen_jobs()
+
+        # If running for a specific user, load their private seen history
+        user_seen = self.store.load_user_seen_jobs(user_id) if user_id else {}
+
+        logger.info(
+            "Initiating Acorn Pipeline: %d roles, %d global keys cached, %d user seen keys (user_id=%s).",
+            len(roles),
+            len(global_seen),
+            len(user_seen),
+            user_id or "global",
+        )
 
         discovered: dict[str, JobListing] = {}
+        failed_sources: set[str] = set()
+        successful_sources: set[str] = set()
 
         for loc in self.config.search_locations:
             for role in roles:
@@ -72,6 +92,7 @@ class JobTrackingPipeline:
                 for scraper in self.scrapers:
                     try:
                         candidates = scraper.scrape(role, loc, self.config.max_age_seconds)
+                        successful_sources.add(scraper.name)
                         for job in candidates:
                             # 1. Rule 3: Strict Role-Title Token Alignment & Non-Tech False Positive Blocking
                             if not is_relevant_title(job.title, user_roles=roles):
@@ -99,10 +120,17 @@ class JobTrackingPipeline:
                             if job.velocity_rank == int(VelocityRank.SATURATED_OR_DROPPED):
                                 continue
 
-                            # 4. Rule 2: Dual-Key Canonical SHA-256 Deduplication (job.id + fingerprint)
-                            if (job.id in seen) or (job.fingerprint in seen):
-                                logger.debug("Deduplicated job by key: id=%s fp=%s", job.id, job.fingerprint)
-                                continue
+                            # 4. Rule 2: Dual-Key Canonical Deduplication
+                            # In user-targeted mode: global seen does NOT suppress! Only suppress if THIS user already received it.
+                            # In scheduled/global mode: global seen suppresses duplicate alerts.
+                            if user_id:
+                                if (job.id in user_seen) or (job.fingerprint in user_seen):
+                                    logger.debug("Deduplicated job by user-seen key: id=%s fp=%s for user=%s", job.id, job.fingerprint, user_id)
+                                    continue
+                            else:
+                                if (job.id in global_seen) or (job.fingerprint in global_seen):
+                                    logger.debug("Deduplicated job by global seen key: id=%s fp=%s", job.id, job.fingerprint)
+                                    continue
 
                             if (job.id in discovered) or (job.fingerprint in discovered):
                                 continue
@@ -111,6 +139,7 @@ class JobTrackingPipeline:
                             discovered[job.fingerprint] = job
 
                     except Exception as exc:
+                        failed_sources.add(scraper.name)
                         logger.error("Error executing scraper %s for role %s: %s", scraper.name, role, exc)
 
                 time.sleep(0.5)
@@ -128,14 +157,25 @@ class JobTrackingPipeline:
         if not dry_run:
             for job in sorted_jobs:
                 if self.notifier.send_alert(job):
-                    # Record both keys in seen store
-                    seen[job.id] = now_iso
-                    seen[job.fingerprint] = now_iso
                     alerts_sent += 1
+                    # Record keys in global seen store for ingestion tracking
+                    global_seen[job.id] = now_iso
+                    global_seen[job.fingerprint] = now_iso
+
+                    # Record keys in user-specific seen store if targeted
+                    if user_id:
+                        user_seen[job.id] = now_iso
+                        user_seen[job.fingerprint] = now_iso
+
                     time.sleep(0.5)
 
-            # Atomically save state
-            self.store.save_seen_jobs(seen)
+            # Atomically save global state
+            self.store.save_seen_jobs(global_seen)
+
+            # Atomically save user state if targeted
+            if user_id:
+                self.store.save_user_seen_jobs(user_id, user_seen)
+
             if not custom_roles:
                 self.store.save_roles_config(roles_cfg)
             logger.info("State successfully updated: %d alerts dispatched.", alerts_sent)
@@ -148,4 +188,6 @@ class JobTrackingPipeline:
             new_jobs_found=len(sorted_jobs),
             alerts_transmitted=alerts_sent,
             paused=False,
+            failed_sources=sorted(list(failed_sources)),
+            successful_sources=sorted(list(successful_sources)),
         )

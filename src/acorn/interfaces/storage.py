@@ -30,3 +30,25 @@ class BaseStateStore(ABC):
     def save_roles_config(self, cfg: dict[str, Any]) -> None:
         """Atomically persists updated tracked roles configuration."""
         pass
+
+    def is_job_seen_by_user(self, user_id: str, job_key: str) -> bool:
+        """
+        Determines if a specific user has already received an alert for this job.
+        Default implementation returns False (not seen by user).
+        """
+        return False
+
+    def mark_job_seen_by_user(self, user_id: str, job_id: str, fingerprint: str) -> None:
+        """
+        Records that a specific user has received an alert for this job.
+        Default implementation is a no-op.
+        """
+        pass
+
+    def load_user_seen_jobs(self, user_id: str) -> dict[str, str]:
+        """Loads per-user seen jobs mapping."""
+        return {}
+
+    def save_user_seen_jobs(self, user_id: str, seen: dict[str, str]) -> None:
+        """Persists per-user seen jobs mapping."""
+        pass

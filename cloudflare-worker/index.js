@@ -380,19 +380,34 @@ async function setPersonality(chatId, value, env) {
 // 7. GEMINI 1.5 FLASH PROMPT & AGENT
 // ─────────────────────────────────────────────────────────────────────────────
 
-function buildSystemPrompt(rolesConfig, botConfig, personality) {
+function buildSystemPrompt(rolesConfig, botConfig, personality, userContext = null) {
   const tone =
     personality === 'encouraging'
       ? `Tone: Warm, motivating, and energetic. Encourage the job seeker, celebrate their proactive attitude, and provide actionable Canadian tech hiring insights.`
       : `Tone: Professional, direct, and concise. Provide crisp, factual labor market intelligence and direct execution feedback.`;
 
-  return `You are Acorn 🌰, an intelligent Canadian tech career and job-hunting assistant embedded directly within a Telegram bot.
+  const userRoles = (userContext?.roles && userContext.roles.length > 0)
+    ? userContext.roles
+    : (rolesConfig?.roles || []);
+  const userLocations = (userContext?.locations && userContext.locations.length > 0)
+    ? userContext.locations.join(', ')
+    : 'GTA (Mississauga / Toronto) & Canada Remote';
+
+  const userTitle = userContext?.acornUserId ? `Personalized Scout for User (${userContext.acornUserId})` : 'Acorn 🌰 Scout';
+
+  return `You are Acorn 🌰, an intelligent Canadian career and job-hunting assistant embedded directly within a Telegram bot.
+${userTitle}
 
 ${tone}
 
+━━━ USER PERSONAL CAREER CONTEXT ━━━
+• This User's Active Target Roles (${userRoles.length}): ${userRoles.join(', ')}
+• Preferred Locations: ${userLocations}
+• Experience Level: ${userContext?.experienceLevel || 'Mid / Entry'}
+• IMPORTANT: In all answers about tracked roles, search scope, or career questions, ONLY refer to THIS user's roles (${userRoles.join(', ')}). Never claim the user is tracking unconfigured roles.
+
 ━━━ RUNTIME SYSTEM STATE ━━━
-• Active Tracked Roles (${rolesConfig.roles.length}): ${rolesConfig.roles.join(', ')}
-• Ingestion Frequency: Every 10 minutes via GitHub Actions
+• Ingestion Frequency: Every 10 minutes via scheduled pipeline
 • Freshness Horizon: ${Math.round(botConfig.max_age_seconds / 60)} minutes
 • Batch Pipeline: ${botConfig.cron_enabled ? '▶️ Active' : '⏸️ Paused'}
 • Priority 1 (Core GTA) 🔥: Mississauga, Toronto, Etobicoke, North York, Scarborough, East York, York
@@ -400,7 +415,7 @@ ${tone}
 • Priority 3 (Remote) 🌐: Telework / Canada-wide
 
 ━━━ TOOL INVOCATION CAPABILITIES ━━━
-You have direct programmatic control over the scraping pipeline. If the user instructs you to change tracking, schedule a scan, or adjust settings, output the corresponding action objects in your JSON "actions" array:
+If the user instructs you to change tracking, schedule a scan, or adjust settings, output the corresponding action objects in your JSON "actions" array:
   • Add role: {"type": "ADD_ROLE", "value": "Junior Cloud Architect"}
   • Remove role: {"type": "REMOVE_ROLE", "value": "Helpdesk"}
   • Immediate scan: {"type": "TRIGGER_SCAN"}
@@ -540,8 +555,11 @@ function parseGeminiResponse(raw) {
 // 8. PIPELINE ACTION EXECUTOR
 // ─────────────────────────────────────────────────────────────────────────────
 
-async function executePipelineActions(actions, chatId, env) {
+async function executePipelineActions(actions, chatId, env, userContext = null) {
   if (!Array.isArray(actions) || actions.length === 0) return;
+
+  const identityService = new IdentityService(env);
+  const profileRepo = new ProfileRepository(env);
 
   for (const action of actions) {
     try {
@@ -549,39 +567,69 @@ async function executePipelineActions(actions, chatId, env) {
         case 'ADD_ROLE': {
           const role = String(action.value || '').trim();
           if (!ROLE_NAME_REGEX.test(role)) break;
-          await ghPutWithRetry(
-            'roles_config.json',
-            (data) => {
-              const exists = data.roles.some((r) => r.toLowerCase() === role.toLowerCase());
-              if (exists) return null;
-              data.roles.push(role);
-              return data;
-            },
-            `feat(roles): add tracked role ${role}`,
-            env
-          );
+          // If user context exists, add to user target roles in D1
+          if (userContext?.acornUserId) {
+            await profileRepo.saveUserRoles(userContext.acornUserId, [
+              ...(userContext.roles || []),
+              role,
+            ]);
+          } else {
+            await ghPutWithRetry(
+              'roles_config.json',
+              (data) => {
+                const exists = data.roles.some((r) => r.toLowerCase() === role.toLowerCase());
+                if (exists) return null;
+                data.roles.push(role);
+                return data;
+              },
+              `feat(roles): add tracked role ${role}`,
+              env
+            );
+          }
           break;
         }
 
         case 'REMOVE_ROLE': {
           const role = String(action.value || '').trim();
-          await ghPutWithRetry(
-            'roles_config.json',
-            (data) => {
-              const idx = data.roles.findIndex((r) => r.toLowerCase() === role.toLowerCase());
-              if (idx === -1) return null;
-              data.roles.splice(idx, 1);
-              return data;
-            },
-            `feat(roles): remove tracked role ${role}`,
-            env
-          );
+          if (userContext?.acornUserId) {
+            const filtered = (userContext.roles || []).filter((r) => r.toLowerCase() !== role.toLowerCase());
+            await profileRepo.saveUserRoles(userContext.acornUserId, filtered);
+          } else {
+            await ghPutWithRetry(
+              'roles_config.json',
+              (data) => {
+                const idx = data.roles.findIndex((r) => r.toLowerCase() === role.toLowerCase());
+                if (idx === -1) return null;
+                data.roles.splice(idx, 1);
+                return data;
+              },
+              `feat(roles): remove tracked role ${role}`,
+              env
+            );
+          }
           break;
         }
 
-        case 'TRIGGER_SCAN':
-          await ghDispatchWorkflow(env);
+        case 'TRIGGER_SCAN': {
+          let targetRoles = userContext?.roles || [];
+          let acornUserId = userContext?.acornUserId;
+          if (!acornUserId) {
+            const ident = await identityService.getOrCreateUserByTelegram(chatId);
+            acornUserId = ident.acornUserId;
+            const roles = await profileRepo.getUserRoles(acornUserId);
+            targetRoles = (roles || []).map((r) => r.role_title);
+          }
+          if (targetRoles.length > 0) {
+            await ghDispatchWorkflow(env, {
+              targetChatId: chatId,
+              targetRoles,
+              userId: acornUserId,
+            });
+          } else {
+            await ghDispatchWorkflow(env, { targetChatId: chatId, userId: acornUserId });
+          }
           break;
+        }
 
         case 'PAUSE_CRON':
           await ghPutWithRetry(
@@ -994,7 +1042,28 @@ async function handleMessage(message, env) {
     return;
   }
 
-  // Standard AI Assistant Chat
+  // Standard AI Assistant Chat (Personalized to requesting user)
+  const identityService = new IdentityService(env);
+  const profileRepo = new ProfileRepository(env);
+
+  let userContext = null;
+  try {
+    const { acornUserId } = await identityService.getOrCreateUserByTelegram(chatId);
+    const [roles, profile, prefs] = await Promise.all([
+      profileRepo.getUserRoles(acornUserId),
+      profileRepo.getUserProfile(acornUserId),
+      profileRepo.getSearchPreferences(acornUserId),
+    ]);
+    userContext = {
+      acornUserId,
+      roles: (roles || []).map((r) => r.role_title),
+      locations: prefs?.locations ? JSON.parse(prefs.locations) : [],
+      experienceLevel: profile?.experience_level || 'Mid',
+    };
+  } catch (ctxErr) {
+    console.warn('Could not load user context for AI prompt:', ctxErr);
+  }
+
   const [history, rolesData, botData, personality] = await Promise.all([
     loadHistory(chatId, env),
     ghGet('roles_config.json', env),
@@ -1002,7 +1071,7 @@ async function handleMessage(message, env) {
     getPersonality(chatId, env),
   ]);
 
-  const systemPrompt = buildSystemPrompt(rolesData.content, botData.content, personality);
+  const systemPrompt = buildSystemPrompt(rolesData.content, botData.content, personality, userContext);
 
   let rawLLMOutput;
   try {
@@ -1021,8 +1090,8 @@ async function handleMessage(message, env) {
   const parsed = parseGeminiResponse(rawLLMOutput);
   const responseMessage = parsed.message || '✅ Done.';
 
-  // Execute remote state changes
-  await executePipelineActions(parsed.actions, chatId, env);
+  // Execute remote state changes with user-specific context
+  await executePipelineActions(parsed.actions, chatId, env, userContext);
 
   // Save conversation history to KV
   const updatedHistory = [

@@ -127,3 +127,54 @@ class AtomicJsonStateStore(BaseStateStore):
     def save_roles_config(self, cfg: dict[str, Any]) -> None:
         """Persists role configuration using atomic file replacement."""
         self._atomic_write_json(self.roles_config_path, cfg)
+
+    def _get_user_seen_path(self, user_id: str) -> Path:
+        """Resolves the user-specific seen jobs storage path."""
+        safe_uid = "".join(c for c in (user_id or "default") if c.isalnum() or c in ("_", "-"))
+        return self.seen_jobs_path.parent.parent / "users" / safe_uid / "seen_jobs.json"
+
+    def load_user_seen_jobs(self, user_id: str, retention_days: int = 14) -> dict[str, str]:
+        """Loads and prunes per-user seen job keys."""
+        path = self._get_user_seen_path(user_id)
+        if not path.exists():
+            return {}
+
+        try:
+            raw = path.read_text(encoding="utf-8")
+            data = json.loads(raw) if raw.strip() else {}
+            if not isinstance(data, dict):
+                return {}
+
+            cutoff = datetime.now(timezone.utc) - timedelta(days=retention_days)
+            pruned: dict[str, str] = {}
+            for key, ts_str in data.items():
+                try:
+                    ts = datetime.fromisoformat(ts_str)
+                    if ts.tzinfo is None:
+                        ts = ts.replace(tzinfo=timezone.utc)
+                    if ts >= cutoff:
+                        pruned[key] = ts_str
+                except ValueError:
+                    continue
+            return pruned
+        except Exception as exc:
+            logger.warning("Could not read user seen jobs for %s from %s: %s", user_id, path, exc)
+            return {}
+
+    def save_user_seen_jobs(self, user_id: str, seen: dict[str, str]) -> None:
+        """Persists per-user seen job keys atomically."""
+        path = self._get_user_seen_path(user_id)
+        self._atomic_write_json(path, seen)
+
+    def is_job_seen_by_user(self, user_id: str, job_key: str) -> bool:
+        """Returns True if the specific user has already seen this job key."""
+        user_seen = self.load_user_seen_jobs(user_id)
+        return job_key in user_seen
+
+    def mark_job_seen_by_user(self, user_id: str, job_id: str, fingerprint: str) -> None:
+        """Records both job_id and fingerprint in the user's private seen-job store."""
+        user_seen = self.load_user_seen_jobs(user_id)
+        now_iso = datetime.now(timezone.utc).isoformat()
+        user_seen[job_id] = now_iso
+        user_seen[fingerprint] = now_iso
+        self.save_user_seen_jobs(user_id, user_seen)

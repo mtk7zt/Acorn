@@ -49,14 +49,17 @@ The repository provides:
   - 256-bit CSPRNG key generation (`ACRN-BETA-...`) stored as peppered HMAC-SHA256 digests.
   - Single-use and cohort capacity keys with atomic zero-oversubscription concurrency defense.
   - Central Authorization Guard (`FOUNDER`, `TESTER`, `PUBLIC`, `REVOKED`) and founder admin suite (`/admin`, `/newkey`, `/keys`, `/testers`, `/grant_access`, `/revoke_*`).
-- **BETA-02 — Personalized Profiles, Scan Isolation & Data Portability**:
+- **BETA-02 — Personalized Profiles, Scan Isolation & Delivery Reliability**:
   - Canonical user identities (`acorn_user_id`), transport-independent Telegram identity bindings.
   - Isolated per-user profiles, target roles, and search preferences (`/profile`, `/setroles`, `/setlocations`, `/preferences`).
   - Strict user-owned scan dispatch and recipient binding: 100% notification isolation with zero cross-user leakage.
+  - Global deduplication decoupled from per-user seen-job histories (`data/runtime/users/{user_id}/seen_jobs.json`).
+  - Explicit terminal manual scan outcomes with transparent reporting for matches, 0 matches, and partial source rate limits.
+  - Conversational AI context isolation: Gemini assistant strictly bound to the requesting user's target roles and preferences.
   - Reorganized non-sensitive operational files under `data/runtime/` with full deduplication history preserved.
   - Cloud-independent storage contracts (`IResumeStorage`) and versioned profile export/import (`acorn-profile` v1.0).
 - **Automated Pipeline**: Scheduled GitHub Actions runner with Canadian GTA-first geofencing, freshness ranking, and saturation detection.
-- **100% Passing Automated Tests**: **61 unit, integration, concurrency, and security tests** verifying domain models, persistence, geofence, velocity, security, user isolation, profile portability, and activation lifecycles.
+- **100% Passing Automated Tests**: **74 unit, integration, concurrency, and security tests** verifying domain models, persistence, geofence, velocity, security, user isolation, profile portability, activation lifecycles, and immediate delivery reliability.
 
 ---
 

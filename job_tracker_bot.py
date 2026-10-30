@@ -168,7 +168,7 @@ def main() -> None:
     if user_id:
         logger.info("Executing personalized scan for Acorn User: %s (Recipient: %s)", user_id, chat_id)
 
-    summary = pipeline.run(dry_run=args.dry_run, custom_roles=custom_roles)
+    summary = pipeline.run(dry_run=args.dry_run, custom_roles=custom_roles, user_id=user_id or None)
     if summary.paused:
         logger.info("Pipeline completed early: execution is paused.")
     else:
@@ -178,6 +178,28 @@ def main() -> None:
             summary.scraped_candidates_count,
             summary.alerts_transmitted,
         )
+
+        # MANDATORY BETA-02 REQUIREMENT: Deliver explicit terminal outcome to user on manual /scan
+        if user_id and not args.dry_run:
+            if summary.alerts_transmitted == 0:
+                roles_display = ", ".join(custom_roles) if custom_roles else "your target roles"
+                partial_note = ""
+                if summary.failed_sources:
+                    partial_note = f"\n\n<i>Note: Some sources ({', '.join(summary.failed_sources)}) experienced temporary rate-limits; results reflect currently available sources.</i>"
+
+                empty_msg = (
+                    f"🔍 <b>Scan Complete — No New Qualifying Matches</b>\n\n"
+                    f"Acorn checked active Canadian job sources for <b>{roles_display}</b>.\n"
+                    f"No newly posted opportunities matching your velocity and geofence criteria were found at this moment.{partial_note}\n\n"
+                    f"<i>Acorn's scheduled engine will continue monitoring every 10 minutes and alert you immediately the moment a qualified match appears!</i>"
+                )
+                notifier.send_system_message(empty_msg)
+            elif summary.failed_sources:
+                partial_note = (
+                    f"ℹ️ <i>Scan complete ({summary.alerts_transmitted} matches delivered). "
+                    f"Note: {', '.join(summary.failed_sources)} had temporary rate-limits.</i>"
+                )
+                notifier.send_system_message(partial_note)
 
 
 if __name__ == "__main__":

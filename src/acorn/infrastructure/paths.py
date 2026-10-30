@@ -45,6 +45,15 @@ def get_seen_jobs_path() -> Path:
     return canonical
 
 
+def get_user_seen_jobs_path(user_id: str = "") -> Path:
+    """
+    Resolves the canonical path to per-user seen jobs tracking.
+    Stored under data/runtime/users/{safe_user_id}/seen_jobs.json.
+    """
+    safe_uid = "".join(c for c in (user_id or "default") if c.isalnum() or c in ("_", "-"))
+    return get_data_dir() / "users" / safe_uid / "seen_jobs.json"
+
+
 def get_roles_config_path() -> Path:
     """
     Resolves the canonical path to roles_config.json:

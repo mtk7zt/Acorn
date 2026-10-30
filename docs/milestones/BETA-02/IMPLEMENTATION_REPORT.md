@@ -45,16 +45,32 @@ All directives specified in the master execution specification for **`BETA-02`**
 - `migrations/0003_user_profiles_and_portability.sql`: 7 additive tables.
 - `migrations/0003_rollback.sql`: Safe rollback definitions.
 
-### D. Automated Test Suite (61 Passing Tests)
+### D. Automated Test Suite (74 Passing Tests)
+- `tests/test_delivery_reliability_integration.py`: 10 mandatory integration tests (Scenarios A through T: immediate automatic alerts, global deduplication decoupling, partial source failure reporting, duplicate prevention, and terminal scan outcomes).
 - `tests/test_user_isolation.py`: Regression and two-user concurrent isolation tests.
 - `tests/test_user_profiles.py`: Migration 0003 schema execution and role isolation.
 - `tests/test_profile_portability.py`: `acorn-profile` v1.0 export/import tests.
 - `tests/test_resume_security.py`: Magic byte validation, oversized document rejection, storage lifecycle.
 - `tests/test_runtime_storage_relocation.py`: Path resolution, historical deduplication preservation.
+- `tests/test_activation_security.py`: Peppered HMAC, single-use activation keys, key expiration.
+- `tests/test_activation_concurrency.py`: Atomic capacity verification, redemption idempotency.
 
 ---
 
-## 3. Strict Boundary Compliance
+## 3. Incident Resolution Matrix
+
+| Incident | Root Cause | Engineering Resolution | Verified Gate |
+|---|---|---|---|
+| **Incident A (Tester scan delivered to Founder)** | `job_tracker.yml` and `job_tracker_bot.py` defaulted to `secrets.TELEGRAM_CHAT_ID` | Added `--target-chat-id` and `--user-id` with strict isolated delivery; 0 alerts to founder | Gate 1, 4, 11 |
+| **Incident B (Founder roles in Conversational AI)** | `buildSystemPrompt` read global `roles_config.json` | Updated prompt builder to load user's private D1 target roles (`userContext`); conversational AI strictly scopes to user | Gate 2, 3 |
+| **Incident C (Workflow ran, tester received no jobs)** | Global `seen_jobs.json` suppressed jobs discovered previously for other users | Decoupled global discovery deduplication from per-user seen history (`data/runtime/users/{user_id}/seen_jobs.json`) | Gate 6, 9 |
+| **Incident D (Workflow Contention & Shell Quoting Bug)** | CLI argument expansion in GitHub Actions workflow split multiple roles on spaces | Replaced fragile string interpolation with structured environment variables and bash arrays | Gate 4, 10 |
+| **Incident E (Silent Scan Completion)** | Pipeline returned silently when 0 new unnotified jobs were found | Implemented explicit terminal outcome reporting with transparent empty/partial failure notices | Gate 5, 8 |
+| **Incident F (Impersonal Automatic Notifications)** | Filtering suppressed non-tech roles like Forklift Operator | Updated `is_relevant_title` to honor user-explicitly configured roles while retaining senior exclusion rules | Gate 6, 8 |
+
+---
+
+## 4. Strict Boundary Compliance
 
 As mandated by Turbo Mode boundaries:
 - **No live databases modified.**
