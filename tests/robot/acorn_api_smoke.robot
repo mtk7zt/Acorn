@@ -21,7 +21,7 @@ Signals Endpoint Returns A List
     Should Be True    isinstance($body, list)
 
 Activity Endpoint Returns A List
-    ${response}=    GET On Session    acorn    /v1/activity?limit=5    expected_status=200
+    ${response}=    GET On Session    acorn    url=/v1/activity?limit=5    expected_status=200
     ${body}=    Set Variable    ${response.json()}
     Should Be True    isinstance($body, list)
 
