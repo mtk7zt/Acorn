@@ -2,6 +2,7 @@
 Unit Tests: Dual-Key Fingerprint Deduplication & Atomic Storage
 """
 
+from datetime import datetime, timezone
 import json
 from pathlib import Path
 import tempfile
@@ -45,10 +46,11 @@ def test_atomic_storage_operations():
         assert len(roles_cfg["roles"]) == 2
         assert "Junior Developer" in roles_cfg["roles"]
 
-        # 2. Test saving seen dual keys
+        # 2. Test saving seen dual keys (using current timestamp within retention horizon)
+        now_iso = datetime.now(timezone.utc).isoformat()
         seen_data = {
-            "li_123456": "2026-10-28T12:00:00+00:00",
-            "fp_abcdef1234567890": "2026-10-28T12:00:00+00:00",
+            "li_123456": now_iso,
+            "fp_abcdef1234567890": now_iso,
         }
         store.save_seen_jobs(seen_data)
 
