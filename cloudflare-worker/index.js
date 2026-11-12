@@ -34,6 +34,12 @@ const CANONICAL_TECH_KEYWORDS = [
 ];
 
 import { handleAcornApiV1 } from './api_v1_routes.js';
+import { resolveAuthRole, isFounder, AuthRole } from './activation/auth.js';
+import { ActivationService } from './activation/service.js';
+import { FounderAdminController } from './activation/admin.js';
+import { ProfileController } from './profile/controller.js';
+import { IdentityService } from './profile/identity.js';
+import { ProfileRepository } from './profile/repository.js';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // 1. HTTP GATEWAY & ACCESS CONTROL
@@ -217,37 +223,58 @@ function answerCallback(callbackQueryId, text, env) {
 // ─────────────────────────────────────────────────────────────────────────────
 
 async function ghGet(path, env) {
-  const res = await fetch(`${GITHUB_API}/repos/${REPO}/contents/${path}`, {
+  let resolvedPath = path;
+  let res = await fetch(`${GITHUB_API}/repos/${REPO}/contents/${resolvedPath}`, {
     headers: {
       Authorization: `token ${env.GITHUB_PAT}`,
       Accept: 'application/vnd.github.v3+json',
       'User-Agent': 'Acorn-Edge-Worker/2.0',
     },
   });
-  if (!res.ok) throw new Error(`GitHub GET ${path} HTTP ${res.status}`);
+
+  // Backward-compatible fallback for runtime files relocated in BETA-02
+  if (!res.ok && res.status === 404 && !path.startsWith('data/')) {
+    const fallbackPath = path === 'seen_jobs.json'
+      ? `data/runtime/ingestion/${path}`
+      : `data/runtime/config/${path}`;
+    const fallbackRes = await fetch(`${GITHUB_API}/repos/${REPO}/contents/${fallbackPath}`, {
+      headers: {
+        Authorization: `token ${env.GITHUB_PAT}`,
+        Accept: 'application/vnd.github.v3+json',
+        'User-Agent': 'Acorn-Edge-Worker/2.0',
+      },
+    });
+    if (fallbackRes.ok) {
+      res = fallbackRes;
+      resolvedPath = fallbackPath;
+    }
+  }
+
+  if (!res.ok) throw new Error(`GitHub GET ${resolvedPath} HTTP ${res.status}`);
   const data = await res.json();
   const decoded = atob(data.content.replace(/\s/g, ''));
   const bytes = new Uint8Array(decoded.length);
   for (let i = 0; i < decoded.length; i++) bytes[i] = decoded.charCodeAt(i);
   const text = new TextDecoder().decode(bytes);
-  return { content: JSON.parse(text), sha: data.sha };
+  return { content: JSON.parse(text), sha: data.sha, path: resolvedPath };
 }
 
 async function ghPutWithRetry(path, mutateFn, message, env, maxRetries = 3) {
   let attempt = 0;
   while (attempt < maxRetries) {
     attempt++;
-    const { content, sha } = await ghGet(path, env);
+    const { content, sha, path: resolvedPath } = await ghGet(path, env);
     const updatedContent = mutateFn(content);
     if (!updatedContent) return;
 
+    const actualPath = resolvedPath || path;
     const json = JSON.stringify(updatedContent, null, 2);
     const bytes = new TextEncoder().encode(json);
     let binary = '';
     bytes.forEach((b) => (binary += String.fromCharCode(b)));
     const encoded = btoa(binary);
 
-    const res = await fetch(`${GITHUB_API}/repos/${REPO}/contents/${path}`, {
+    const res = await fetch(`${GITHUB_API}/repos/${REPO}/contents/${actualPath}`, {
       method: 'PUT',
       headers: {
         Authorization: `token ${env.GITHUB_PAT}`,
@@ -259,14 +286,14 @@ async function ghPutWithRetry(path, mutateFn, message, env, maxRetries = 3) {
     });
 
     if (res.status === 409) {
-      console.warn(`GitHub PUT 409 SHA conflict on ${path}. Retrying attempt ${attempt}...`);
+      console.warn(`GitHub PUT 409 SHA conflict on ${actualPath}. Retrying attempt ${attempt}...`);
       await new Promise((resolve) => setTimeout(resolve, Math.random() * 200 + 100));
       continue;
     }
 
     if (!res.ok) {
       const err = await res.json().catch(() => ({}));
-      throw new Error(`GitHub PUT ${path} HTTP ${res.status}: ${JSON.stringify(err)}`);
+      throw new Error(`GitHub PUT ${actualPath} HTTP ${res.status}: ${JSON.stringify(err)}`);
     }
 
     return res.json();
@@ -274,21 +301,45 @@ async function ghPutWithRetry(path, mutateFn, message, env, maxRetries = 3) {
   throw new Error(`Max retries exceeded updating ${path}`);
 }
 
-async function ghDispatchWorkflow(env) {
-  const res = await fetch(
-    `${GITHUB_API}/repos/${REPO}/actions/workflows/job_tracker.yml/dispatches`,
-    {
-      method: 'POST',
-      headers: {
-        Authorization: `token ${env.GITHUB_PAT}`,
-        Accept: 'application/vnd.github.v3+json',
-        'User-Agent': 'Acorn-Edge-Worker/2.0',
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({ ref: 'main' }),
+async function ghDispatchWorkflow(env, options = {}) {
+  const inputs = {};
+  if (options.targetChatId) inputs.target_chat_id = String(options.targetChatId);
+  if (options.targetRoles) inputs.target_roles = Array.isArray(options.targetRoles) ? options.targetRoles.join(', ') : String(options.targetRoles);
+  if (options.userId) inputs.user_id = String(options.userId);
+
+  // Default to Dev branch where the BETA-02 workflow inputs are defined
+  const ref = env.GITHUB_BRANCH || options.ref || 'Dev';
+  const body = { ref };
+  if (Object.keys(inputs).length > 0) {
+    body.inputs = inputs;
+  }
+
+  try {
+    const res = await fetch(
+      `${GITHUB_API}/repos/${REPO}/actions/workflows/job_tracker.yml/dispatches`,
+      {
+        method: 'POST',
+        headers: {
+          Authorization: `token ${env.GITHUB_PAT}`,
+          Accept: 'application/vnd.github.v3+json',
+          'User-Agent': 'Acorn-Edge-Worker/2.0',
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(body),
+      }
+    );
+
+    if (res.status === 204) {
+      return { ok: true, status: 204 };
     }
-  );
-  return res.status === 204;
+
+    const errText = await res.text().catch(() => '');
+    console.error(`GitHub Actions dispatch error [ref: ${ref}]: HTTP ${res.status}: ${errText}`);
+    return { ok: false, status: res.status, error: errText };
+  } catch (netErr) {
+    console.error(`GitHub Actions network error:`, netErr);
+    return { ok: false, status: 500, error: netErr?.message || String(netErr) };
+  }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -329,19 +380,34 @@ async function setPersonality(chatId, value, env) {
 // 7. GEMINI 1.5 FLASH PROMPT & AGENT
 // ─────────────────────────────────────────────────────────────────────────────
 
-function buildSystemPrompt(rolesConfig, botConfig, personality) {
+function buildSystemPrompt(rolesConfig, botConfig, personality, userContext = null) {
   const tone =
     personality === 'encouraging'
       ? `Tone: Warm, motivating, and energetic. Encourage the job seeker, celebrate their proactive attitude, and provide actionable Canadian tech hiring insights.`
       : `Tone: Professional, direct, and concise. Provide crisp, factual labor market intelligence and direct execution feedback.`;
 
-  return `You are Acorn 🌰, an intelligent Canadian tech career and job-hunting assistant embedded directly within a Telegram bot.
+  const userRoles = (userContext?.roles && userContext.roles.length > 0)
+    ? userContext.roles
+    : (rolesConfig?.roles || []);
+  const userLocations = (userContext?.locations && userContext.locations.length > 0)
+    ? userContext.locations.join(', ')
+    : 'GTA (Mississauga / Toronto) & Canada Remote';
+
+  const userTitle = userContext?.acornUserId ? `Personalized Scout for User (${userContext.acornUserId})` : 'Acorn 🌰 Scout';
+
+  return `You are Acorn 🌰, an intelligent Canadian career and job-hunting assistant embedded directly within a Telegram bot.
+${userTitle}
 
 ${tone}
 
+━━━ USER PERSONAL CAREER CONTEXT ━━━
+• This User's Active Target Roles (${userRoles.length}): ${userRoles.join(', ')}
+• Preferred Locations: ${userLocations}
+• Experience Level: ${userContext?.experienceLevel || 'Mid / Entry'}
+• IMPORTANT: In all answers about tracked roles, search scope, or career questions, ONLY refer to THIS user's roles (${userRoles.join(', ')}). Never claim the user is tracking unconfigured roles.
+
 ━━━ RUNTIME SYSTEM STATE ━━━
-• Active Tracked Roles (${rolesConfig.roles.length}): ${rolesConfig.roles.join(', ')}
-• Ingestion Frequency: Every 10 minutes via GitHub Actions
+• Ingestion Frequency: Every 10 minutes via scheduled pipeline
 • Freshness Horizon: ${Math.round(botConfig.max_age_seconds / 60)} minutes
 • Batch Pipeline: ${botConfig.cron_enabled ? '▶️ Active' : '⏸️ Paused'}
 • Priority 1 (Core GTA) 🔥: Mississauga, Toronto, Etobicoke, North York, Scarborough, East York, York
@@ -349,7 +415,7 @@ ${tone}
 • Priority 3 (Remote) 🌐: Telework / Canada-wide
 
 ━━━ TOOL INVOCATION CAPABILITIES ━━━
-You have direct programmatic control over the scraping pipeline. If the user instructs you to change tracking, schedule a scan, or adjust settings, output the corresponding action objects in your JSON "actions" array:
+If the user instructs you to change tracking, schedule a scan, or adjust settings, output the corresponding action objects in your JSON "actions" array:
   • Add role: {"type": "ADD_ROLE", "value": "Junior Cloud Architect"}
   • Remove role: {"type": "REMOVE_ROLE", "value": "Helpdesk"}
   • Immediate scan: {"type": "TRIGGER_SCAN"}
@@ -489,8 +555,11 @@ function parseGeminiResponse(raw) {
 // 8. PIPELINE ACTION EXECUTOR
 // ─────────────────────────────────────────────────────────────────────────────
 
-async function executePipelineActions(actions, chatId, env) {
+async function executePipelineActions(actions, chatId, env, userContext = null) {
   if (!Array.isArray(actions) || actions.length === 0) return;
+
+  const identityService = new IdentityService(env);
+  const profileRepo = new ProfileRepository(env);
 
   for (const action of actions) {
     try {
@@ -498,39 +567,69 @@ async function executePipelineActions(actions, chatId, env) {
         case 'ADD_ROLE': {
           const role = String(action.value || '').trim();
           if (!ROLE_NAME_REGEX.test(role)) break;
-          await ghPutWithRetry(
-            'roles_config.json',
-            (data) => {
-              const exists = data.roles.some((r) => r.toLowerCase() === role.toLowerCase());
-              if (exists) return null;
-              data.roles.push(role);
-              return data;
-            },
-            `feat(roles): add tracked role ${role}`,
-            env
-          );
+          // If user context exists, add to user target roles in D1
+          if (userContext?.acornUserId) {
+            await profileRepo.saveUserRoles(userContext.acornUserId, [
+              ...(userContext.roles || []),
+              role,
+            ]);
+          } else {
+            await ghPutWithRetry(
+              'roles_config.json',
+              (data) => {
+                const exists = data.roles.some((r) => r.toLowerCase() === role.toLowerCase());
+                if (exists) return null;
+                data.roles.push(role);
+                return data;
+              },
+              `feat(roles): add tracked role ${role}`,
+              env
+            );
+          }
           break;
         }
 
         case 'REMOVE_ROLE': {
           const role = String(action.value || '').trim();
-          await ghPutWithRetry(
-            'roles_config.json',
-            (data) => {
-              const idx = data.roles.findIndex((r) => r.toLowerCase() === role.toLowerCase());
-              if (idx === -1) return null;
-              data.roles.splice(idx, 1);
-              return data;
-            },
-            `feat(roles): remove tracked role ${role}`,
-            env
-          );
+          if (userContext?.acornUserId) {
+            const filtered = (userContext.roles || []).filter((r) => r.toLowerCase() !== role.toLowerCase());
+            await profileRepo.saveUserRoles(userContext.acornUserId, filtered);
+          } else {
+            await ghPutWithRetry(
+              'roles_config.json',
+              (data) => {
+                const idx = data.roles.findIndex((r) => r.toLowerCase() === role.toLowerCase());
+                if (idx === -1) return null;
+                data.roles.splice(idx, 1);
+                return data;
+              },
+              `feat(roles): remove tracked role ${role}`,
+              env
+            );
+          }
           break;
         }
 
-        case 'TRIGGER_SCAN':
-          await ghDispatchWorkflow(env);
+        case 'TRIGGER_SCAN': {
+          let targetRoles = userContext?.roles || [];
+          let acornUserId = userContext?.acornUserId;
+          if (!acornUserId) {
+            const ident = await identityService.getOrCreateUserByTelegram(chatId);
+            acornUserId = ident.acornUserId;
+            const roles = await profileRepo.getUserRoles(acornUserId);
+            targetRoles = (roles || []).map((r) => r.role_title);
+          }
+          if (targetRoles.length > 0) {
+            await ghDispatchWorkflow(env, {
+              targetChatId: chatId,
+              targetRoles,
+              userId: acornUserId,
+            });
+          } else {
+            await ghDispatchWorkflow(env, { targetChatId: chatId, userId: acornUserId });
+          }
           break;
+        }
 
         case 'PAUSE_CRON':
           await ghPutWithRetry(
@@ -595,46 +694,77 @@ async function handleMessage(message, env) {
   const rawText = message.text || '';
   const textTrim = rawText.trim();
 
-  // Enforce Multi-User Zero-Trust Authorization (Decision 2)
-  if (!isAuthorizedSender(chatId, env)) {
-    console.warn(`Unauthorized access rejected from chatId: ${chatId}`);
-    return;
+  const role = await resolveAuthRole(chatId, env);
+
+  // 1. Founder Administrative Command Dispatcher
+  if (role === AuthRole.FOUNDER && textTrim.startsWith('/')) {
+    const adminCtrl = new FounderAdminController(env, { sendMessage, sendTyping });
+    const handled = await adminCtrl.handleAdminCommand(chatId, textTrim, env);
+    if (handled) return;
   }
 
-  // Visual feedback
-  await sendTyping(chatId, env);
-
-  // Command: /start or /help
+  // 2. Public Command: /start or /help (Adaptive onboarding)
   if (textTrim === '/start' || textTrim === '/help') {
-    const welcomeText = (
-      '🌰 <b>Acorn Job Tracker & Career Intelligence Engine</b>\n\n' +
-      'Always-on edge intelligence for early Canadian tech job discovery and ATS resume tailoring.\n\n' +
-      '<b>⚡ Commands & Capabilities:</b>\n' +
-      '• <code>/scan</code> — Scan all Canadian job boards for your target roles\n' +
-      '• <code>/jd</code> — Upload a JD to get ATS passing statements & extracted skills\n' +
-      '• <code>/ats</code> — Upload your resume to get your ATS score & actionable edits\n' +
-      '• <code>/roles</code> — View currently tracked roles\n' +
-      '• <code>/forget</code> — Wipe your session data from edge KV\n\n' +
-      '<i>Or send any question in natural language to chat with Acorn!</i>'
+    await sendTyping(chatId, env);
+
+    // If already authorized (Founder or Active Tester), present full Acorn control hub
+    if (role === AuthRole.FOUNDER || role === AuthRole.TESTER) {
+      const welcomeText = (
+        '🌰 <b>Acorn Job Tracker & Career Intelligence Engine</b>\n\n' +
+        'Always-on edge intelligence for early Canadian tech job discovery and ATS resume tailoring.\n\n' +
+        '<b>⚡ Commands & Capabilities:</b>\n' +
+        '• <code>/profile</code> — View and manage your personal career profile\n' +
+        '• <code>/setroles</code> — Customize your target job search positions\n' +
+        '• <code>/scan</code> — Scan all Canadian job boards for your target roles\n' +
+        '• <code>/jd</code> — Upload a JD to get ATS passing statements & extracted skills\n' +
+        '• <code>/ats</code> — Upload your resume to get your ATS score & actionable edits\n' +
+        '• <code>/roles</code> — View currently tracked roles\n' +
+        '• <code>/forget</code> — Wipe your session data from edge KV\n\n' +
+        '<i>Or send any question in natural language to chat with Acorn!</i>'
+      );
+      await sendMessage(chatId, welcomeText, env, {
+        reply_markup: {
+          inline_keyboard: [
+            [
+              { text: '👤 My Profile & Roles', callback_data: 'prof_view' },
+              { text: '🔍 Scan Target Roles', callback_data: 'scan_roles' },
+            ],
+            [
+              { text: '📋 Breakdown JD (ATS Statements & Skills)', callback_data: 'jd_prompt' },
+            ],
+            [
+              { text: '📄 Scan Resume for ATS Score & Edits', callback_data: 'ats_prompt' },
+            ],
+            [
+              { text: '🗑️ Wipe Data', callback_data: 'wipe_prompt' },
+            ],
+          ],
+        },
+      });
+      return;
+    }
+
+    // Unauthorized or Revoked: Present Warm Public Onboarding Flow (Stage BETA-01)
+    if (role === AuthRole.REVOKED) {
+      await sendMessage(
+        chatId,
+        '⚠️ <b>Access Deactivated:</b> Your beta tester access has been revoked. Contact Acorn support for assistance.\n\n<i>You may still use /forget to purge your conversation data.</i>',
+        env
+      );
+      return;
+    }
+
+    const publicWelcome = (
+      '🌰 <b>Welcome to Acorn!</b>\n\n' +
+      'Your personal career scout is currently welcoming a small group of early testers.\n\n' +
+      'Have an activation key? You can use it to unlock Acorn.'
     );
-    await sendMessage(chatId, welcomeText, env, {
+    await sendMessage(chatId, publicWelcome, env, {
       reply_markup: {
         inline_keyboard: [
           [
-            { text: '🔍 Scan All Target Roles', callback_data: 'scan_roles' },
-          ],
-          [
-            { text: '📋 Breakdown JD (ATS Statements & Skills)', callback_data: 'jd_prompt' },
-          ],
-          [
-            { text: '📄 Scan Resume for ATS Score & Edits', callback_data: 'ats_prompt' },
-          ],
-          [
-            { text: '📋 View Roles', callback_data: 'list_roles' },
-            { text: '➕ Add Role', callback_data: 'add_role_prompt' },
-          ],
-          [
-            { text: '🗑️ Wipe Data', callback_data: 'wipe_prompt' },
+            { text: '🌱 Activate Acorn', callback_data: 'activate_prompt' },
+            { text: '🌰 About Acorn', callback_data: 'about_acorn' },
           ],
         ],
       },
@@ -642,30 +772,182 @@ async function handleMessage(message, env) {
     return;
   }
 
-  // Command: /roles
-  if (textTrim === '/roles') {
-    try {
-      const { content } = await ghGet('roles_config.json', env);
-      const list = content.roles.map((r, i) => `${i + 1}. <b>${r}</b>`).join('\n');
+  // 3. Public Command: /activate or Key Input Flow
+  const awaitingActivation = await env.CHAT_HISTORY.get(`awaiting_activation:${chatId}`);
+  const isDirectActivationCmd = textTrim.startsWith('/activate');
+
+  if (isDirectActivationCmd || awaitingActivation === 'true') {
+    await env.CHAT_HISTORY.delete(`awaiting_activation:${chatId}`);
+    const keyCandidate = isDirectActivationCmd
+      ? textTrim.replace('/activate', '').trim()
+      : textTrim;
+
+    if (!keyCandidate) {
+      await env.CHAT_HISTORY.put(`awaiting_activation:${chatId}`, 'true', { expirationTtl: 300 });
       await sendMessage(
         chatId,
-        `📋 <b>Active Tracked Roles (${content.roles.length}):</b>\n\n${list}\n\n<i>Use /scan to trigger a new scrape run!</i>`,
+        '🔑 <b>Acorn Beta Activation:</b>\n\nPlease send your activation key in this private chat:\n(Format: <code>ACRN-BETA-...</code>)',
         env
       );
+      return;
+    }
+
+    await sendTyping(chatId, env);
+    const service = new ActivationService(env);
+    const redeemRes = await service.redeemKey(keyCandidate, chatId);
+
+    if (redeemRes.success) {
+      const successMsg = (
+        '🌱 <b>You\'re in!</b>\n\n' +
+        'Acorn is now active for you.\n\n' +
+        'Your personal career scout is ready to help you discover opportunities worth your attention.'
+      );
+      await sendMessage(chatId, successMsg, env, {
+        reply_markup: {
+          inline_keyboard: [
+            [{ text: '🔍 Scan Target Roles', callback_data: 'scan_roles' }],
+            [{ text: '📋 Breakdown Job Description (JD)', callback_data: 'jd_prompt' }],
+            [{ text: '📄 Scan Resume for ATS Score', callback_data: 'ats_prompt' }],
+          ],
+        },
+      });
+      return;
+    }
+
+    const errorMsg = 'That activation key couldn\'t be accepted. Check the key and try again, or request another invitation.';
+    await sendMessage(chatId, errorMsg, env);
+    return;
+  }
+
+  // 4. Data Sovereignty (/forget) remains public for all users
+  if (textTrim === '/forget' || textTrim.toLowerCase() === 'wipe my data') {
+    await wipeUserData(chatId, env);
+    await sendMessage(
+      chatId,
+      '🗑️ <b>Data Sovereignty Confirmed:</b> All conversation turns and cached resume data have been wiped from edge memory.',
+      env
+    );
+    return;
+  }
+
+  // 5. Gate all remaining protected commands and conversational AI
+  if (role !== AuthRole.FOUNDER && role !== AuthRole.TESTER) {
+    console.warn(`Protected feature access denied for unauthorized user: ${chatId}`);
+    const deniedText = (
+      '🌰 <b>Acorn Beta Access Required</b>\n\n' +
+      'This feature is reserved for active beta testers.\n' +
+      'Please tap <b>🌱 Activate Acorn</b> below and enter your key.'
+    );
+    await sendMessage(chatId, deniedText, env, {
+      reply_markup: {
+        inline_keyboard: [
+          [{ text: '🌱 Activate Acorn', callback_data: 'activate_prompt' }],
+        ],
+      },
+    });
+    return;
+  }
+
+  // Visual feedback
+  await sendTyping(chatId, env);
+
+  // Profile management & Onboarding commands (/profile, /setroles, /setlocations, /preferences, /exportprofile, /uploadresume, /deleteresume)
+  const profileController = new ProfileController(env, { sendMessage, sendTyping });
+  const handledProfile = await profileController.handleProfileCommand(chatId, textTrim, env);
+  if (handledProfile) return;
+
+  // Command: /roles (Personalized user target roles)
+  if (textTrim === '/roles') {
+    try {
+      const identityService = new IdentityService(env);
+      const profileRepo = new ProfileRepository(env);
+      const { acornUserId } = await identityService.getOrCreateUserByTelegram(chatId);
+      const userRoles = await profileRepo.getUserRoles(acornUserId);
+
+      if (userRoles && userRoles.length > 0) {
+        const list = userRoles.map((r, i) => `${i + 1}. <b>${r.role_title}</b>`).join('\n');
+        await sendMessage(
+          chatId,
+          `📋 <b>Your Active Target Roles (${userRoles.length}):</b>\n\n${list}\n\n<i>Use /scan to trigger a search, or /setroles to update!</i>`,
+          env
+        );
+      } else {
+        await sendMessage(
+          chatId,
+          '📋 <b>No Target Roles Set Yet</b>\n\nUse <code>/setroles &lt;Role 1, Role 2&gt;</code> to choose what jobs Acorn tracks for you!',
+          env,
+          {
+            reply_markup: {
+              inline_keyboard: [
+                [{ text: '🎯 Set Target Roles', callback_data: 'prof_set_roles' }],
+              ],
+            },
+          }
+        );
+      }
     } catch {
-      await sendMessage(chatId, '⚠️ Unable to fetch roles from repository.', env);
+      await sendMessage(chatId, '⚠️ Unable to fetch roles.', env);
     }
     return;
   }
 
-  // Command: /scan
+  // Command: /scan (Strictly user-isolated scanning)
   if (textTrim === '/scan') {
     try {
-      const ok = await ghDispatchWorkflow(env);
-      if (ok) {
-        await sendMessage(chatId, '🚀 <b>Job Tracker Scan Triggered:</b> GitHub Actions workflow dispatched successfully!', env);
+      const identityService = new IdentityService(env);
+      const profileRepo = new ProfileRepository(env);
+      const { acornUserId } = await identityService.getOrCreateUserByTelegram(chatId);
+      const userRoles = await profileRepo.getUserRoles(acornUserId);
+
+      let targetRoles = [];
+      if (userRoles && userRoles.length > 0) {
+        targetRoles = userRoles.map((r) => r.role_title);
       } else {
-        await sendMessage(chatId, '⚠️ GitHub Actions dispatch returned non-204 status. Check GITHUB_PAT.', env);
+        // Prompt onboarding if user has not set target roles
+        const promptMsg = (
+          '🎯 <b>Before scanning, tell Acorn what roles you want to find!</b>\n\n' +
+          'You have not configured your target roles yet.\n\n' +
+          'Reply with <code>/setroles</code> followed by comma-separated titles. For example:\n' +
+          '<code>/setroles Junior Software Engineer, Cloud Support, Data Analyst</code>\n\n' +
+          '<i>Once set, /scan will search specifically for your positions!</i>'
+        );
+        await sendMessage(chatId, promptMsg, env, {
+          reply_markup: {
+            inline_keyboard: [
+              [{ text: '🎯 Set Target Roles', callback_data: 'prof_set_roles' }],
+            ],
+          },
+        });
+        return;
+      }
+
+      await profileRepo.recordScanRequest({
+        acornUserId,
+        correlationId: crypto.randomUUID(),
+        recipientAddress: chatId,
+      });
+
+      const dispatchRes = await ghDispatchWorkflow(env, {
+        targetChatId: chatId,
+        targetRoles,
+        userId: acornUserId,
+      });
+
+      if (dispatchRes.ok) {
+        const rolesList = targetRoles.map((r) => `• <b>${r}</b>`).join('\n');
+        await sendMessage(
+          chatId,
+          `🚀 <b>Personalized Job Scan Triggered!</b>\n\n<b>Searching for your target roles:</b>\n${rolesList}\n\n<i>Qualified matching opportunities will be delivered directly to you here!</i>`,
+          env
+        );
+      } else {
+        const statusSnippet = dispatchRes.status ? ` (HTTP ${dispatchRes.status})` : '';
+        const errorDetail = dispatchRes.error ? `\n\n<code>${dispatchRes.error.slice(0, 200)}</code>` : '';
+        await sendMessage(
+          chatId,
+          `⚠️ <b>GitHub Actions Dispatch Issue${statusSnippet}:</b>${errorDetail}\n\nPlease verify that your <code>GITHUB_PAT</code> secret in Cloudflare has <b>workflow</b> permissions and access to repository <code>mtk7zt/Acorn</code>.`,
+          env
+        );
       }
     } catch (err) {
       await sendMessage(chatId, `⚠️ Failed to trigger workflow: ${err?.message || err}`, env);
@@ -760,7 +1042,28 @@ async function handleMessage(message, env) {
     return;
   }
 
-  // Standard AI Assistant Chat
+  // Standard AI Assistant Chat (Personalized to requesting user)
+  const identityService = new IdentityService(env);
+  const profileRepo = new ProfileRepository(env);
+
+  let userContext = null;
+  try {
+    const { acornUserId } = await identityService.getOrCreateUserByTelegram(chatId);
+    const [roles, profile, prefs] = await Promise.all([
+      profileRepo.getUserRoles(acornUserId),
+      profileRepo.getUserProfile(acornUserId),
+      profileRepo.getSearchPreferences(acornUserId),
+    ]);
+    userContext = {
+      acornUserId,
+      roles: (roles || []).map((r) => r.role_title),
+      locations: prefs?.locations ? JSON.parse(prefs.locations) : [],
+      experienceLevel: profile?.experience_level || 'Mid',
+    };
+  } catch (ctxErr) {
+    console.warn('Could not load user context for AI prompt:', ctxErr);
+  }
+
   const [history, rolesData, botData, personality] = await Promise.all([
     loadHistory(chatId, env),
     ghGet('roles_config.json', env),
@@ -768,7 +1071,7 @@ async function handleMessage(message, env) {
     getPersonality(chatId, env),
   ]);
 
-  const systemPrompt = buildSystemPrompt(rolesData.content, botData.content, personality);
+  const systemPrompt = buildSystemPrompt(rolesData.content, botData.content, personality, userContext);
 
   let rawLLMOutput;
   try {
@@ -787,8 +1090,8 @@ async function handleMessage(message, env) {
   const parsed = parseGeminiResponse(rawLLMOutput);
   const responseMessage = parsed.message || '✅ Done.';
 
-  // Execute remote state changes
-  await executePipelineActions(parsed.actions, chatId, env);
+  // Execute remote state changes with user-specific context
+  await executePipelineActions(parsed.actions, chatId, env, userContext);
 
   // Save conversation history to KV
   const updatedHistory = [
@@ -810,24 +1113,168 @@ async function handleCallbackQuery(callbackQuery, env) {
   const chatId = callbackQuery.message?.chat?.id;
   const data = callbackQuery.data;
 
-  if (!isAuthorizedSender(chatId, env)) return;
+  const role = await resolveAuthRole(chatId, env);
 
   await answerCallback(callbackQuery.id, '', env);
+
+  // 1. Public Callbacks
+  if (data === 'activate_prompt') {
+    await env.CHAT_HISTORY.put(`awaiting_activation:${chatId}`, 'true', { expirationTtl: 300 });
+    await sendMessage(
+      chatId,
+      '🔑 <b>Acorn Beta Activation:</b>\n\nPlease text your activation key into this private chat:\n(Format: <code>ACRN-BETA-...</code>)',
+      env
+    );
+    return;
+  }
+
+  if (data === 'about_acorn') {
+    const aboutMsg = (
+      '🌰 <b>About Acorn AI</b>\n\n' +
+      'Acorn is your personal Canadian career scout. Instead of spending your day refreshing job boards, ' +
+      'Acorn keeps watch in the background, qualifies roles across the Greater Toronto Area & Canada Remote, ' +
+      'and brings worthwhile opportunities directly to you with first-mover velocity.'
+    );
+    await sendMessage(chatId, aboutMsg, env, {
+      reply_markup: {
+        inline_keyboard: [
+          [{ text: '🌱 Activate Acorn', callback_data: 'activate_prompt' }],
+        ],
+      },
+    });
+    return;
+  }
+
+  // 2. Founder Admin Callbacks
+  if (role === AuthRole.FOUNDER) {
+    const adminCtrl = new FounderAdminController(env, { sendMessage, sendTyping });
+    if (data === 'admin_newkey_1') {
+      await adminCtrl.handleNewKey(chatId, ['Single-Tester Beta', '1']);
+      return;
+    }
+    if (data === 'admin_newkey_5') {
+      await adminCtrl.handleNewKey(chatId, ['5-Tester Cohort', '5']);
+      return;
+    }
+    if (data === 'admin_testers') {
+      await adminCtrl.handleTesterStats(chatId);
+      return;
+    }
+    if (data === 'admin_list_keys') {
+      await adminCtrl.handleListKeys(chatId);
+      return;
+    }
+  }
+
+  // 3. Gate Protected Feature Callbacks
+  if (role !== AuthRole.FOUNDER && role !== AuthRole.TESTER) {
+    console.warn(`Protected callback rejected for unauthorized user: ${chatId}`);
+    await sendMessage(
+      chatId,
+      '🌰 <b>Access Required:</b> Please activate your tester invitation to use this feature.',
+      env,
+      {
+        reply_markup: {
+          inline_keyboard: [
+            [{ text: '🌱 Activate Acorn', callback_data: 'activate_prompt' }],
+          ],
+        },
+      }
+    );
+    return;
+  }
+
+  if (data === 'prof_view') {
+    const profileController = new ProfileController(env, { sendMessage, sendTyping });
+    const identityService = new IdentityService(env);
+    const { acornUserId } = await identityService.getOrCreateUserByTelegram(chatId);
+    await profileController.showProfile(chatId, acornUserId);
+    return;
+  }
+
+  if (data === 'prof_set_roles') {
+    const profileController = new ProfileController(env, { sendMessage, sendTyping });
+    await profileController.promptRoles(chatId);
+    return;
+  }
+
+  if (data === 'prof_set_locs') {
+    await sendMessage(
+      chatId,
+      '📍 <b>Set Search Locations:</b>\n\nReply with <code>/setlocations</code> followed by cities or Remote.\n<i>Example:</i> <code>/setlocations Toronto, Mississauga, Remote</code>',
+      env
+    );
+    return;
+  }
+
+  if (data === 'prof_export') {
+    const identityService = new IdentityService(env);
+    const profileRepo = new ProfileRepository(env);
+    const { acornUserId } = await identityService.getOrCreateUserByTelegram(chatId);
+    const profileData = await profileRepo.exportProfile(acornUserId);
+    await sendMessage(
+      chatId,
+      `📦 <b>Your Portable Acorn Profile (v1.0):</b>\n\n<pre><code>${JSON.stringify(profileData, null, 2)}</code></pre>`,
+      env
+    );
+    return;
+  }
 
   if (data === 'scan_roles') {
     await sendTyping(chatId, env);
     try {
-      const ok = await ghDispatchWorkflow(env);
-      if (ok) {
+      const identityService = new IdentityService(env);
+      const profileRepo = new ProfileRepository(env);
+      const { acornUserId } = await identityService.getOrCreateUserByTelegram(chatId);
+      const userRoles = await profileRepo.getUserRoles(acornUserId);
+
+      let targetRoles = [];
+      if (userRoles && userRoles.length > 0) {
+        targetRoles = userRoles.map((r) => r.role_title);
+      } else {
+        const promptMsg = (
+          '🎯 <b>Before scanning, tell Acorn what roles you want to find!</b>\n\n' +
+          'You have not set your personal target roles yet.\n\n' +
+          'Reply with <code>/setroles</code> followed by comma-separated titles. For example:\n' +
+          '<code>/setroles Junior Software Engineer, Cloud Support, Data Analyst</code>'
+        );
+        await sendMessage(chatId, promptMsg, env, {
+          reply_markup: {
+            inline_keyboard: [
+              [{ text: '🎯 Set Target Roles', callback_data: 'prof_set_roles' }],
+            ],
+          },
+        });
+        return;
+      }
+
+      await profileRepo.recordScanRequest({
+        acornUserId,
+        correlationId: crypto.randomUUID(),
+        recipientAddress: chatId,
+      });
+
+      const dispatchRes = await ghDispatchWorkflow(env, {
+        targetChatId: chatId,
+        targetRoles,
+        userId: acornUserId,
+      });
+
+      if (dispatchRes.ok) {
+        const rolesList = targetRoles.map((r) => `• <b>${r}</b>`).join('\n');
         await sendMessage(
           chatId,
-          '🔍 <b>Scanning Canadian job boards for all your target roles...</b>\n\n' +
-          '⚡ Dispatched background scouts across LinkedIn, Indeed, and Job Bank CA.\n' +
-          'Fresh qualified Signals will arrive automatically as soon as first-mover matches are found!',
+          `🚀 <b>Personalized Job Scan Triggered!</b>\n\n<b>Searching for your target roles:</b>\n${rolesList}\n\n<i>Qualified matching opportunities will be delivered directly to you here!</i>`,
           env
         );
       } else {
-        await sendMessage(chatId, '⚠️ Could not trigger automatic scan. Please try again in a few moments.', env);
+        const statusSnippet = dispatchRes.status ? ` (HTTP ${dispatchRes.status})` : '';
+        const errorDetail = dispatchRes.error ? `\n\n<code>${dispatchRes.error.slice(0, 200)}</code>` : '';
+        await sendMessage(
+          chatId,
+          `⚠️ <b>GitHub Actions Dispatch Issue${statusSnippet}:</b>${errorDetail}\n\nPlease verify that your <code>GITHUB_PAT</code> secret in Cloudflare has <b>workflow</b> permissions and access to repository <code>mtk7zt/Acorn</code>.`,
+          env
+        );
       }
     } catch (err) {
       await sendMessage(chatId, `⚠️ Failed to trigger scan: ${err?.message || err}`, env);

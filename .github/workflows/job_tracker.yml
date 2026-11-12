@@ -14,6 +14,21 @@ on:
         options:
           - 'false'
           - 'true'
+      target_chat_id:
+        description: 'Target recipient Telegram chat ID (user isolation)'
+        required: false
+        default: ''
+        type: string
+      target_roles:
+        description: 'Comma-separated target roles for user scan'
+        required: false
+        default: ''
+        type: string
+      user_id:
+        description: 'Canonical Acorn user ID'
+        required: false
+        default: ''
+        type: string
 
 permissions:
   contents: write
@@ -48,13 +63,27 @@ jobs:
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          TARGET_CHAT_ID: ${{ github.event.inputs.target_chat_id }}
+          TARGET_ROLES: ${{ github.event.inputs.target_roles }}
+          TARGET_USER_ID: ${{ github.event.inputs.user_id }}
           TEST_TELEGRAM: ${{ github.event.inputs.test_telegram || 'false' }}
-        run: python job_tracker_bot.py
+        run: |
+          ARGS=()
+          if [ -n "$TARGET_CHAT_ID" ]; then
+            ARGS+=(--target-chat-id "$TARGET_CHAT_ID")
+          fi
+          if [ -n "$TARGET_ROLES" ]; then
+            ARGS+=(--roles "$TARGET_ROLES")
+          fi
+          if [ -n "$TARGET_USER_ID" ]; then
+            ARGS+=(--user-id "$TARGET_USER_ID")
+          fi
+          python job_tracker_bot.py "${ARGS[@]}"
 
       - name: Commit updated state files
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add seen_jobs.json roles_config.json bot_config.json
+          git add -A data/runtime/
           git diff --staged --quiet || git commit -m "chore: update job tracker state [skip ci]"
           git push

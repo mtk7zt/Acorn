@@ -51,11 +51,21 @@ def is_relevant_title(
     if not title_lower:
         return False
 
-    # 1. Block non-tech false positives
-    for non_tech in NON_TECH_FALSE_POSITIVES:
-        pattern = r"\b" + re.escape(non_tech) + r"\b"
-        if re.search(pattern, title_lower):
-            return False
+    # Check if the title aligns with an explicitly requested custom user role
+    has_custom_user_role = False
+    if user_roles:
+        for custom_role in user_roles:
+            role_tokens = [t.lower().strip() for t in custom_role.split() if len(t.strip()) > 1]
+            if role_tokens and all(token in title_lower for token in role_tokens):
+                has_custom_user_role = True
+                break
+
+    # 1. Block non-tech false positives (unless explicitly tracked by user)
+    if not has_custom_user_role:
+        for non_tech in NON_TECH_FALSE_POSITIVES:
+            pattern = r"\b" + re.escape(non_tech) + r"\b"
+            if re.search(pattern, title_lower):
+                return False
 
     # 2. Block un-overridden Senior/Lead titles
     has_junior_override = any(k in title_lower for k in JUNIOR_OVERRIDE_KEYWORDS)
