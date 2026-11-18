@@ -29,6 +29,11 @@ from src.acorn.domain.models import JobListing, PriorityTier, VelocityRank
 from src.acorn.infrastructure.notifiers.telegram import TelegramNotifier
 from src.acorn.infrastructure.scrapers.factory import ScraperFactory
 from src.acorn.infrastructure.storage.json_store import AtomicJsonStateStore
+from src.acorn.infrastructure.paths import (
+    get_seen_jobs_path,
+    get_roles_config_path,
+    get_bot_config_path,
+)
 
 logging.basicConfig(
     level=logging.INFO,
@@ -53,9 +58,9 @@ DEFAULT_TARGET_ROLES: list[str] = [
     "Junior Java Developer",
 ]
 
-SEEN_JOBS_FILE = Path(os.getenv("SEEN_JOBS_FILE", "seen_jobs.json"))
-ROLES_CONFIG_FILE = Path(os.getenv("ROLES_CONFIG_FILE", "roles_config.json"))
-BOT_CONFIG_FILE = Path(os.getenv("BOT_CONFIG_FILE", "bot_config.json"))
+SEEN_JOBS_FILE = get_seen_jobs_path()
+ROLES_CONFIG_FILE = get_roles_config_path()
+BOT_CONFIG_FILE = get_bot_config_path()
 
 
 def main() -> None:
@@ -72,18 +77,39 @@ def main() -> None:
         action="store_true",
         help="Transmit a sample test notification with interactive 3-row buttons to verify bot connectivity",
     )
+    parser.add_argument(
+        "--target-chat-id",
+        type=str,
+        default="",
+        help="Target recipient Telegram chat ID. When specified, overrides default TELEGRAM_CHAT_ID to guarantee user isolation.",
+    )
+    parser.add_argument(
+        "--user-id",
+        type=str,
+        default="",
+        help="Canonical Acorn User ID for scan ownership and audit tracking.",
+    )
+    parser.add_argument(
+        "--roles",
+        type=str,
+        default="",
+        help="Comma-separated custom target roles for personalized scanning.",
+    )
     args = parser.parse_args()
 
     # Load centralized configuration
     config = ConfigurationManager.load_app_config(BOT_CONFIG_FILE)
 
-    # Resolve environment secrets
+    # Resolve environment secrets and recipient isolation
     bot_token = os.getenv("TELEGRAM_BOT_TOKEN", "").strip()
-    chat_id = os.getenv("TELEGRAM_CHAT_ID", "").strip()
+    
+    # Isolate recipient: If --target-chat-id was provided, use it strictly.
+    # Otherwise fallback to TELEGRAM_CHAT_ID.
+    chat_id = args.target_chat_id.strip() or os.getenv("TARGET_CHAT_ID", "").strip() or os.getenv("TELEGRAM_CHAT_ID", "").strip()
 
     if not bot_token or not chat_id:
         if not args.dry_run:
-            raise SystemExit("ERROR: TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID environment variables must be configured.")
+            raise SystemExit("ERROR: TELEGRAM_BOT_TOKEN and target recipient chat ID must be configured.")
         logger.warning("TELEGRAM credentials missing; executing in dry-run mode.")
 
     # Initialize Object-Oriented Components via Dependency Injection
@@ -135,7 +161,14 @@ def main() -> None:
         return
 
     # 2. Execute Full Batch Pipeline
-    summary = pipeline.run(dry_run=args.dry_run)
+    roles_str = args.roles.strip() if args.roles else os.getenv("TARGET_ROLES", "").strip()
+    custom_roles = [r.strip() for r in roles_str.split(",") if r.strip()] if roles_str else None
+    
+    user_id = args.user_id.strip() if args.user_id else (os.getenv("TARGET_USER_ID", "").strip() or os.getenv("USER_ID", "").strip())
+    if user_id:
+        logger.info("Executing personalized scan for Acorn User: %s (Recipient: %s)", user_id, chat_id)
+
+    summary = pipeline.run(dry_run=args.dry_run, custom_roles=custom_roles, user_id=user_id or None)
     if summary.paused:
         logger.info("Pipeline completed early: execution is paused.")
     else:
@@ -145,6 +178,28 @@ def main() -> None:
             summary.scraped_candidates_count,
             summary.alerts_transmitted,
         )
+
+        # MANDATORY BETA-02 REQUIREMENT: Deliver explicit terminal outcome to user on manual /scan
+        if user_id and not args.dry_run:
+            if summary.alerts_transmitted == 0:
+                roles_display = ", ".join(custom_roles) if custom_roles else "your target roles"
+                partial_note = ""
+                if summary.failed_sources:
+                    partial_note = f"\n\n<i>Note: Some sources ({', '.join(summary.failed_sources)}) experienced temporary rate-limits; results reflect currently available sources.</i>"
+
+                empty_msg = (
+                    f"🔍 <b>Scan Complete — No New Qualifying Matches</b>\n\n"
+                    f"Acorn checked active Canadian job sources for <b>{roles_display}</b>.\n"
+                    f"No newly posted opportunities matching your velocity and geofence criteria were found at this moment.{partial_note}\n\n"
+                    f"<i>Acorn's scheduled engine will continue monitoring every 10 minutes and alert you immediately the moment a qualified match appears!</i>"
+                )
+                notifier.send_system_message(empty_msg)
+            elif summary.failed_sources:
+                partial_note = (
+                    f"ℹ️ <i>Scan complete ({summary.alerts_transmitted} matches delivered). "
+                    f"Note: {', '.join(summary.failed_sources)} had temporary rate-limits.</i>"
+                )
+                notifier.send_system_message(partial_note)
 
 
 if __name__ == "__main__":

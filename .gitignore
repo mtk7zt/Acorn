@@ -63,3 +63,8 @@ node_modules/
 apps/web/node_modules/
 apps/web/dist/
 scratch_inspect/
+
+# Robot Framework Test Outputs
+output.xml
+log.html
+report.html
